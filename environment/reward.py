@@ -22,6 +22,21 @@ SOURCE_RELIABILITY = {
     "spinner": 0.30,
 }
 
+DECISION_ALIASES = {
+    "warn_team_quietly": ["warn", "quietly warn", "warn engineering", "warn team"],
+    "request_budget_freeze": ["budget freeze", "freeze", "budget", "request freeze"],
+    "escalate_to_leadership": ["escalate", "leadership", "report up"],
+    "wait_for_more_signals": ["wait", "gather", "hold"],
+    "ignore": ["ignore", "nothing", "do nothing"],
+}
+
+def normalize_decision(decision: str) -> str:
+    decision_lower = decision.lower()
+    for canonical, aliases in DECISION_ALIASES.items():
+        if any(alias in decision_lower for alias in aliases):
+            return canonical
+    return decision_lower
+
 def calculate_reward(
     action_type: str,
     decision: str,
@@ -58,12 +73,23 @@ def calculate_reward(
             reward -= 2 * times_consulted  # escalating penalty
 
     if action_type == "wait":
-        # Reward waiting when signals are contradictory
-        if _signals_are_contradictory(action_history):
-            reward += 3
-        # Penalize waiting when you have strong confirmed signal
-        elif len(confirmed_sources) >= 2 and current_day >= 3:
-            reward -= 2  # you have enough info, act
+        signals = [a.get("signal_type") for a in action_history if a.get("signal_type")]
+        has_any_signal = len(signals) > 0
+        has_contradiction = "positive" in signals and "negative" in signals
+        sources_consulted = len(confirmed_sources)
+
+        if has_contradiction:
+            reward += 3      # contradictory signals, smart to wait
+        elif has_any_signal and sources_consulted < 2 and current_day < 3:
+            reward += 2      # have partial info, waiting to corroborate
+        elif has_any_signal and sources_consulted >= 1 and current_day < 2:
+            reward += 1      # early days, cautious waiting is fine
+        elif sources_consulted >= 2 and current_day >= 3:
+            reward -= 2      # you have enough info, stop stalling
+
+        # Always give tiny reward for not panic-acting on day 0
+        if current_day == 0:
+            reward += 0.5
 
     if action_type == "post_anonymously_to_forum":
         # Probing via forum post is smart but costs social capital
@@ -96,6 +122,7 @@ def _evaluate_decision(
     
     reward = 0.0
     updated_social_capital = social_capital
+    decision = normalize_decision(decision)
     
     # How well-informed is this decision?
     high_reliability_sources_consulted = sum(

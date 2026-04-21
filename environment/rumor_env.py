@@ -19,7 +19,8 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
     - state exposes episode metadata
     """
 
-    def __init__(self):
+    def __init__(self, difficulty: int = 1):
+        self.difficulty = difficulty
         self.ground_truth = self._generate_scenario()
         self.characters = build_default_characters()
         self.current_day = 0
@@ -41,10 +42,7 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         )
 
     def _generate_scenario(self) -> Dict:
-        """
-        Create the hidden ground truth for this episode
-        """
-        return generate_scenario()
+        return generate_scenario(difficulty=self.difficulty)
 
     def reset(self, seed: int | None = None, episode_id: str | None = None) -> RumorObservation:
         """
@@ -52,6 +50,17 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         """
         if seed is not None:
             random.seed(seed)
+        if len(self.agent_actions_history) > 0:
+            recent_rewards = [
+                a["reward"] for a in self.agent_actions_history[-10:]
+            ]
+            avg_recent = sum(recent_rewards) / max(len(recent_rewards), 1)
+            
+            if avg_recent > 20 and self.difficulty < 3:
+                self.difficulty += 1
+                print(f"Difficulty increased to {self.difficulty}")
+        elif avg_recent < -5 and self.difficulty > 1:
+            self.difficulty -= 1
         self.ground_truth = self._generate_scenario()
         self.current_day = 0
         self.agent_actions_history = []
