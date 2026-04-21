@@ -34,3 +34,5 @@ class RumorState(State):
     social_capital: float = 100.0
     ground_truth: Dict[str, Any] = Field(default_factory=dict)
     agent_actions_history: List[Dict[str, Any]] = Field(default_factory=list)
+    confirmed_sources: List[str] = []
+    signal_log: List[Dict] = []

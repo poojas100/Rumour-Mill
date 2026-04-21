@@ -26,6 +26,8 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         self.max_days = 5
         self.agent_actions_history = []
         self.social_capital = 100
+        self.confirmed_sources = []
+        self.signal_log = []
         self._state = RumorState(
             episode_id=str(uuid4()),
             step_count=0,
@@ -34,6 +36,8 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
             social_capital=self.social_capital,
             ground_truth=self.ground_truth,
             agent_actions_history=self.agent_actions_history,
+            confirmed_sources=[],
+            signal_log=[],
         )
 
     def _generate_scenario(self) -> Dict:
@@ -52,14 +56,18 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         self.current_day = 0
         self.agent_actions_history = []
         self.social_capital = 100
+        self.confirmed_sources = []
+        self.signal_log = []
         self._state = RumorState(
-            episode_id=episode_id or str(uuid4()),
+            episode_id=str(uuid4()),
             step_count=0,
             current_day=self.current_day,
             max_days=self.max_days,
             social_capital=self.social_capital,
             ground_truth=self.ground_truth,
             agent_actions_history=self.agent_actions_history,
+            confirmed_sources=[],
+            signal_log=[],
         )
         return self._generate_observations()
 
@@ -105,9 +113,6 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         )
 
     def step(self, action: RumorAction | Dict) -> RumorObservation:
-        """
-        Agent takes action, environment responds
-        """
         if isinstance(action, dict):
             action = RumorAction(**action)
 
@@ -120,56 +125,110 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
             target = action.target
             question = action.content or ""
 
-            response = self.characters[target].respond(
-                question=question,
+            if target not in self.characters:
+                dm_response = "That person doesn't exist."
+            else:
+                response = self.characters[target].respond(
+                    question=question,
+                    ground_truth=self.ground_truth,
+                    agent_reputation=self.social_capital,
+                )
+                dm_response = response
+
+                # Track which sources have been consulted
+                self.confirmed_sources.append(target)
+
+                # Track signal direction for contradiction detection
+                if response and any(
+                    w in response.lower()
+                    for w in ["not good", "miss", "layoff", "cut", "happening", "bad"]
+                ):
+                    self.signal_log.append({"type": "negative", "source": target})
+                elif response and any(
+                    w in response.lower()
+                    for w in ["fine", "good", "crushed", "amazing", "overblown"]
+                ):
+                    self.signal_log.append({"type": "positive", "source": target})
+
+            # Reward for epistemic behavior — dense signal every step
+            reward, self.social_capital = calculate_reward(
+                action_type="message_character",
+                decision="",
+                target=target,
                 ground_truth=self.ground_truth,
-                agent_reputation=self.social_capital,
+                current_day=self.current_day,
+                social_capital=self.social_capital,
+                action_history=self.agent_actions_history,
+                confirmed_sources=self.confirmed_sources,
             )
 
-            dm_response = response
-            self.agent_actions_history.append(
-                {
-                    "day": self.current_day,
-                    "action": f"message {target}",
-                    "reward": reward,
-                }
-            )
+            self.agent_actions_history.append({
+                "day": self.current_day,
+                "action": f"message {target}",
+                "target": target,
+                "signal_type": self.signal_log[-1]["type"] if self.signal_log else None,
+                "reward": reward,
+            })
 
         elif action.type == "make_decision":
             decision = action.decision or ""
             reward, self.social_capital = calculate_reward(
-                decision,
-                self.ground_truth,
-                self.current_day,
-                self.social_capital,
+                action_type="make_decision",
+                decision=decision,
+                target="",
+                ground_truth=self.ground_truth,
+                current_day=self.current_day,
+                social_capital=self.social_capital,
+                action_history=self.agent_actions_history,
+                confirmed_sources=self.confirmed_sources,
             )
-            self.agent_actions_history.append(
-                {
-                    "day": self.current_day,
-                    "action": decision,
-                    "reward": reward,
-                }
-            )
+            self.agent_actions_history.append({
+                "day": self.current_day,
+                "action": decision,
+                "target": None,
+                "signal_type": None,
+                "reward": reward,
+            })
 
         elif action.type == "post_reddit":
             post = action.content or ""
             reactions = self._simulate_reddit_reactions(post)
-            self.agent_actions_history.append(
-                {
-                    "day": self.current_day,
-                    "action": f"post reddit: {post}",
-                    "reward": reward,
-                }
+            reward, self.social_capital = calculate_reward(
+                action_type="post_anonymously_to_forum",
+                decision="",
+                target="",
+                ground_truth=self.ground_truth,
+                current_day=self.current_day,
+                social_capital=self.social_capital,
+                action_history=self.agent_actions_history,
+                confirmed_sources=self.confirmed_sources,
             )
+            self.agent_actions_history.append({
+                "day": self.current_day,
+                "action": f"post reddit: {post}",
+                "target": None,
+                "signal_type": None,
+                "reward": reward,
+            })
 
         elif action.type == "wait":
-            self.agent_actions_history.append(
-                {
-                    "day": self.current_day,
-                    "action": "wait",
-                    "reward": reward,
-                }
+            reward, self.social_capital = calculate_reward(
+                action_type="wait",
+                decision="",
+                target="",
+                ground_truth=self.ground_truth,
+                current_day=self.current_day,
+                social_capital=self.social_capital,
+                action_history=self.agent_actions_history,
+                confirmed_sources=self.confirmed_sources,
             )
+            self.agent_actions_history.append({
+                "day": self.current_day,
+                "action": "wait",
+                "target": None,
+                "signal_type": None,
+                "reward": reward,
+            })
 
         self.current_day += 1
         done = self.current_day >= self.max_days
@@ -177,23 +236,23 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
 
         if done:
             final_reward = calculate_final_reward(
-                self.ground_truth,
-                self.agent_actions_history,
-                self.social_capital,
+                ground_truth=self.ground_truth,
+                action_history=self.agent_actions_history,
+                social_capital=self.social_capital,
+                confirmed_sources=self.confirmed_sources,
             )
             reward += final_reward
             ground_truth_revealed = self.ground_truth
 
         self._sync_state()
 
-        next_obs = self._generate_observations(
+        return self._generate_observations(
             reward=reward,
             done=done,
             dm_response=dm_response,
             reactions=reactions,
             ground_truth_revealed=ground_truth_revealed,
         )
-        return next_obs
 
     @property
     def state(self) -> RumorState:
@@ -204,6 +263,8 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         self._state.social_capital = self.social_capital
         self._state.ground_truth = self.ground_truth
         self._state.agent_actions_history = self.agent_actions_history
+        self._state.confirmed_sources = self.confirmed_sources
+        self._state.signal_log = self.signal_log
 
     def _simulate_reddit_reactions(self, post: str) -> Dict:
         base_upvotes = random.randint(1, 5)
