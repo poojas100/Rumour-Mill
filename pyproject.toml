@@ -1,0 +1,28 @@
+[project]
+name = "rumor-mill"
+version = "0.1.0"
+description = "Rumor Mill: an RL environment for truth discovery in noisy organizations."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "gym==0.26.2",
+  "numpy>=1.26,<3",
+  "transformers>=4.46.0",
+  "trl>=0.11.4",
+  "accelerate>=0.34.0",
+  "datasets>=2.21.0",
+  "torch>=2.3.0",
+  "streamlit>=1.38.0",
+  "pydantic>=2.8.2",
+  "unsloth>=2025.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = []
