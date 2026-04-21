@@ -2,6 +2,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: F401
 from trl import PPOConfig, PPOTrainer
 from unsloth import FastLanguageModel
 
+from environment.models import RumorAction
 from environment.rumor_env import RumorMillEnv
 from training.config import (
     BATCH_SIZE,
@@ -22,19 +23,19 @@ def parse_action(action_text: str) -> dict:
     lowered = action_text.lower()
 
     if "wait" in lowered:
-        return {"type": "wait"}
+        return RumorAction(type="wait")
 
     if "reddit" in lowered or "post" in lowered:
-        return {"type": "post_reddit", "content": action_text.strip()}
+        return RumorAction(type="post_reddit", content=action_text.strip())
 
     if "message" in lowered or "dm" in lowered or "ask quiet" in lowered:
-        return {
-            "type": "message_character",
-            "target": "quiet_one",
-            "content": "What have you heard about Friday?",
-        }
+        return RumorAction(
+            type="message_character",
+            target="quiet_one",
+            content="What have you heard about Friday?",
+        )
 
-    return {"type": "make_decision", "decision": action_text.strip()}
+    return RumorAction(type="make_decision", decision=action_text.strip())
 
 
 model, tokenizer = FastLanguageModel.from_pretrained(
@@ -66,12 +67,12 @@ for episode in range(TOTAL_EPISODES):
     while not done:
         prompt = f"""
 You are a mid-level employee. You received these messages:
-{obs['messages']}
+{obs.messages}
 
 Reddit posts:
-{obs['reddit_posts']}
+{obs.reddit_posts}
 
-It's day {obs['day']} of 5. Your reputation: {obs['social_capital']}/100
+It's day {obs.day} of 5. Your reputation: {obs.social_capital}/100
 
 What do you do?
 Options:
@@ -92,9 +93,10 @@ Choose wisely. You'll learn the truth at end of week.
         action_text = tokenizer.decode(output[0], skip_special_tokens=True)
         action = parse_action(action_text)
 
-        next_obs, reward, done, info = env.step(action)
-        episode_rewards.append(reward)
-        trainer.step([input_ids], [output], [reward])
+        next_obs = env.step(action)
+        episode_rewards.append(next_obs.reward)
+        trainer.step([input_ids], [output], [next_obs.reward])
+        done = next_obs.done
         obs = next_obs
 
     print(f"Episode {episode}: Total Reward = {sum(episode_rewards)}")

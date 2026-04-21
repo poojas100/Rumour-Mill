@@ -4,6 +4,8 @@ Rumor Mill is a simulated corporate-information environment where an agent must 
 
 The environment models a work week inside a noisy company. A learning agent receives Slack-like messages, anonymous forum posts, and 1-on-1 responses from characters with hidden agendas. It must decide who to trust, when to wait, and when to act.
 
+The current environment implementation follows the OpenEnv server-side pattern with typed `Action`, `Observation`, and `State` models.
+
 ## Project structure
 
 ```text
@@ -12,6 +14,7 @@ Rumour-Mill/
 |   |-- rumor_env.py
 |   |-- characters.py
 |   |-- ground_truth.py
+|   |-- models.py
 |   `-- reward.py
 |-- training/
 |   |-- train_agent.py
@@ -73,7 +76,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-This installs only the lighter local demo dependencies.
+This installs the local demo dependencies plus `openenv-core`, which the environment now uses instead of `gym`.
 
 ### 3. Run a sample episode to verify the environment works
 
@@ -137,6 +140,7 @@ Note:
 - this is a starter script, not a production RL pipeline
 - you will likely run training on Colab or a Linux GPU box
 - if `unsloth` is difficult on your local machine, keep local runs for environment debugging and train remotely
+- the environment itself is now OpenEnv-style, but the training script is still a local starter rather than a full OpenEnv HTTP client/server deployment
 
 ## Docker
 
@@ -160,7 +164,8 @@ streamlit run demo\visualize.py
 
 ## Important files
 
-- [environment/rumor_env.py](/c:/Users/pooja/Rumour-Mill/environment/rumor_env.py:1): main environment loop
+- [environment/rumor_env.py](/c:/Users/pooja/Rumour-Mill/environment/rumor_env.py:1): main OpenEnv-style environment loop
+- [environment/models.py](/c:/Users/pooja/Rumour-Mill/environment/models.py:1): OpenEnv action, observation, and state models
 - [environment/characters.py](/c:/Users/pooja/Rumour-Mill/environment/characters.py:1): NPC logic
 - [environment/ground_truth.py](/c:/Users/pooja/Rumour-Mill/environment/ground_truth.py:1): hidden scenario generation
 - [environment/reward.py](/c:/Users/pooja/Rumour-Mill/environment/reward.py:1): reward calculation
