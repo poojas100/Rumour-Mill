@@ -20,6 +20,8 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
     """
 
     def __init__(self, difficulty: int = 1):
+        self._same_action_streak = 0
+        self._last_action_type = None
         self.difficulty = difficulty
         self.ground_truth = self._generate_scenario()
         self.characters = build_default_characters()
@@ -50,6 +52,8 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         """
         Start new episode
         """
+        self._same_action_streak = 0
+        self._last_action_type = None
         if seed is not None:
             random.seed(seed)
 
@@ -132,25 +136,29 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
             done=done,
         )
 
-    def step(self, action: RumorAction | Dict) -> RumorObservation:
+    def step(self, action):
         if isinstance(action, dict):
             action = RumorAction(**action)
 
-        reward = 0.0
         dm_response = None
         reactions = None
         ground_truth_revealed = None
 
+        # Anti-reward-hacking: penalize action loops
         if action.type == self._last_action_type:
-            self.max_same_action_streak += 1
+            self._same_action_streak += 1
         else:
-            self.max_same_action_streak = 0
+            self._same_action_streak = 0
             self._last_action_type = action.type
 
-        if self.max_same_action_streak >= 3:
-            # Agent is stuck in a loop — force episode end
-            reward = -20.0
-            done = True
+        if self._same_action_streak >= 3:
+            # Force episode end with heavy penalty
+            self._sync_state()
+            return self._generate_observations(
+                reward=-20.0,
+                done=True,
+                ground_truth_revealed=self.ground_truth,
+            )
 
         if action.type == "message_character":
             target = action.target

@@ -158,20 +158,20 @@ def reward_decision_correctness(
 
 def reward_social_preservation(
     action_type: str,
+    decision: str,
     social_capital: float,
 ) -> float:
-    """
-    Small reward for maintaining social capital above threshold.
-    Penalizes burning reputation recklessly.
-    Independent of decision correctness.
-    """
+    # Don't reward social preservation on wrong decisions
+    if action_type == "make_decision":
+        return 0.0  # decision correctness handles this entirely
+    
     if action_type == "post_anonymously_to_forum":
-        return -1.0  # anonymous posting costs social capital
+        return -1.0
 
     if social_capital >= 90:
-        return 0.5   # reward maintaining reputation
+        return 0.5
     if social_capital < 50:
-        return -1.0  # penalty for burning reputation
+        return -1.0
 
     return 0.0
 
@@ -226,7 +226,7 @@ def calculate_reward(
     r_decision, sc_delta = reward_decision_correctness(
         action_type, decision, ground_truth, current_day, confirmed_sources
     )
-    r_social   = reward_social_preservation(action_type, social_capital)
+    r_social   = reward_social_preservation(action_type, decision, social_capital)
     r_panic    = reward_anti_panic(action_type, decision, current_day, confirmed_sources)
 
     total_reward       = r_source + r_timing + r_decision + r_social + r_panic
