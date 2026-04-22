@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from openenv.core.env_server.types import Action, Observation, State
+from openenv.core.env_server.types import Action, BaseModel, Observation, State
 from pydantic import Field
 
 
@@ -13,17 +13,18 @@ class RumorAction(Action):
     decision: Optional[str] = Field(default=None, description="Decision text for decisive actions.")
 
 
-class RumorObservation(Observation):
-    """Observation returned by the Rumor Mill environment."""
-
-    messages: List[str] = Field(default_factory=list)
-    reddit_posts: List[str] = Field(default_factory=list)
-    conversations: List[str] = Field(default_factory=list)
-    day: int = 0
-    social_capital: float = 100.0
+class RumorObservation(BaseModel):
+    messages: List
+    reddit_posts: List
+    conversations: List
+    day: int
+    social_capital: float
     dm_response: Optional[str] = None
-    reactions: Optional[Dict[str, Any]] = None
-    ground_truth_revealed: Optional[Dict[str, Any]] = None
+    reactions: Optional[Dict] = None
+    ground_truth_revealed: Optional[Dict] = None
+    reward: float = 0.0
+    reward_breakdown: Dict = {}
+    done: bool = False
 
 
 class RumorState(State):
