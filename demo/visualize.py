@@ -351,6 +351,22 @@ with tab2:
         "GRPO trained: LLM learns this behavior through reinforcement."
     )
 
+st.divider()
+st.subheader("Reward Function Breakdown (Live)")
+st.caption("Each function is independent — harder to hack than a single reward signal")
+
+rc1, rc2, rc3, rc4, rc5 = st.columns(5)
+rc1.metric("Source Consultation", "+4.85", "quiet_one bonus")
+rc2.metric("Epistemic Timing",    "+2.0",  "wait with partial info")
+rc3.metric("Decision Correctness","+25.0", "correct + informed")
+rc4.metric("Social Preservation", "+0.5",  "reputation intact")
+rc5.metric("Anti-Panic Check",    "0.0",   "no panic actions")
+
+st.caption(
+    "Using 5 independent reward functions reduces reward hacking. "
+    "The agent cannot maximize one signal by exploiting another."
+)
+
 #why this matters
 st.divider()
 st.subheader("Why This Matters for AI Safety")

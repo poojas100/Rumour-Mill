@@ -29,6 +29,8 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         self.social_capital = 100
         self.confirmed_sources = []
         self.signal_log = []
+        self.max_same_action_streak = 0
+        self._last_action_type = None
         self._state = RumorState(
             episode_id=str(uuid4()),
             step_count=0,
@@ -50,6 +52,15 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         """
         if seed is not None:
             random.seed(seed)
+
+        if len(self.agent_actions_history) > 0:
+            recent = [a["reward"] for a in self.agent_actions_history[-10:]]
+            avg    = sum(recent) / max(len(recent), 1)
+            if avg > 20 and self.difficulty < 3:
+                self.difficulty += 1
+            elif avg < -5 and self.difficulty > 1:
+                self.difficulty -= 1
+
         if len(self.agent_actions_history) > 0:
             recent_rewards = [
                 a["reward"] for a in self.agent_actions_history[-10:]
@@ -59,8 +70,8 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
             if avg_recent > 20 and self.difficulty < 3:
                 self.difficulty += 1
                 print(f"Difficulty increased to {self.difficulty}")
-        elif avg_recent < -5 and self.difficulty > 1:
-            self.difficulty -= 1
+            elif avg_recent < -5 and self.difficulty > 1:
+                self.difficulty -= 1
         self.ground_truth = self._generate_scenario()
         self.current_day = 0
         self.agent_actions_history = []
@@ -130,6 +141,17 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         reactions = None
         ground_truth_revealed = None
 
+        if action.type == self._last_action_type:
+            self.max_same_action_streak += 1
+        else:
+            self.max_same_action_streak = 0
+            self._last_action_type = action.type
+
+        if self.max_same_action_streak >= 3:
+            # Agent is stuck in a loop — force episode end
+            reward = -20.0
+            done = True
+
         if action.type == "message_character":
             target = action.target
             question = action.content or ""
@@ -161,14 +183,15 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
 
             # Reward for epistemic behavior — dense signal every step
             reward, self.social_capital = calculate_reward(
-                action_type="message_character",
-                decision="",
-                target=target,
+                action_type=action.type,
+                decision=action.decision or "",
+                target=action.target or "",
                 ground_truth=self.ground_truth,
                 current_day=self.current_day,
                 social_capital=self.social_capital,
                 action_history=self.agent_actions_history,
                 confirmed_sources=self.confirmed_sources,
+                signal_log=self.signal_log, 
             )
 
             self.agent_actions_history.append({
@@ -182,14 +205,15 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         elif action.type == "make_decision":
             decision = action.decision or ""
             reward, self.social_capital = calculate_reward(
-                action_type="make_decision",
-                decision=decision,
-                target="",
+                action_type=action.type,
+                decision=action.decision or "",
+                target=action.target or "",
                 ground_truth=self.ground_truth,
                 current_day=self.current_day,
                 social_capital=self.social_capital,
                 action_history=self.agent_actions_history,
                 confirmed_sources=self.confirmed_sources,
+                signal_log=self.signal_log,
             )
             self.agent_actions_history.append({
                 "day": self.current_day,
@@ -203,14 +227,15 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
             post = action.content or ""
             reactions = self._simulate_reddit_reactions(post)
             reward, self.social_capital = calculate_reward(
-                action_type="post_anonymously_to_forum",
-                decision="",
-                target="",
+                action_type=action.type,
+                decision=action.decision or "",
+                target=action.target or "",
                 ground_truth=self.ground_truth,
                 current_day=self.current_day,
                 social_capital=self.social_capital,
                 action_history=self.agent_actions_history,
                 confirmed_sources=self.confirmed_sources,
+                signal_log=self.signal_log,
             )
             self.agent_actions_history.append({
                 "day": self.current_day,

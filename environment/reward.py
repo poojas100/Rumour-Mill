@@ -1,41 +1,210 @@
 from typing import Dict, List, Tuple
 
-# Structured action space - share this with your teammate
-# to replace free text decisions
-VALID_DECISIONS = [
-    "ignore",
-    "wait_for_more_signals",
-    "warn_team_quietly",
-    "escalate_to_leadership",
-    "post_anonymously_to_forum",
-    "attribute_blame_to_sales",
-    "attribute_blame_to_engineering",
-    "request_budget_freeze",
-]
-
-# Source ground truth accuracy (mirrors characters.py)
 SOURCE_RELIABILITY = {
-    "quiet_one": 0.95,
-    "leaker": 0.80,
+    "quiet_one":  0.95,
+    "leaker":     0.80,
     "politician": 0.70,
-    "gossip": 0.60,
-    "spinner": 0.30,
+    "gossip":     0.60,
+    "spinner":    0.30,
 }
 
 DECISION_ALIASES = {
-    "warn_team_quietly": ["warn", "quietly warn", "warn engineering", "warn team"],
-    "request_budget_freeze": ["budget freeze", "freeze", "budget", "request freeze"],
-    "escalate_to_leadership": ["escalate", "leadership", "report up"],
-    "wait_for_more_signals": ["wait", "gather", "hold"],
-    "ignore": ["ignore", "nothing", "do nothing"],
+    "warn_team_quietly":      ["warn", "quietly", "warn engineering", "warn team", "alert", "notify"],
+    "request_budget_freeze":  ["budget freeze", "freeze", "budget", "request freeze"],
+    "escalate_to_leadership": ["escalate", "leadership", "report up", "tell leadership"],
+    "wait_for_more_signals":  ["wait", "gather", "hold", "more signals"],
+    "ignore":                 ["ignore", "nothing", "do nothing"],
 }
 
 def normalize_decision(decision: str) -> str:
-    decision_lower = decision.lower()
+    d = decision.lower()
     for canonical, aliases in DECISION_ALIASES.items():
-        if any(alias in decision_lower for alias in aliases):
+        if any(alias in d for alias in aliases):
             return canonical
-    return decision_lower
+    return d
+
+def reward_source_consultation(
+    action_type: str,
+    target: str,
+    action_history: List[Dict],
+) -> float:
+    """
+    Rewards consulting high-reliability sources.
+    Penalizes re-consulting the same source.
+    Independent of decision correctness.
+    """
+    if action_type != "message_character":
+        return 0.0
+
+    reliability = SOURCE_RELIABILITY.get(target, 0.5)
+    base = reliability * 3.0
+
+    times_consulted = sum(
+        1 for a in action_history
+        if a.get("target") == target
+    )
+    if times_consulted >= 1:
+        return -2.0 * times_consulted  # escalating penalty for repeat consults
+
+    # Bonus for going to quiet_one — they rarely speak voluntarily
+    if target == "quiet_one":
+        base += 2.0
+
+    return round(base, 2)
+
+
+def reward_epistemic_timing(
+    action_type: str,
+    current_day: int,
+    confirmed_sources: List[str],
+    signal_log: List[Dict],
+) -> float:
+    """
+    Rewards waiting when signals are unclear.
+    Penalizes waiting when you have enough information.
+    Independent of what the decision is.
+    """
+    if action_type != "wait":
+        return 0.0
+
+    signals = [s["type"] for s in signal_log if s.get("type")]
+    has_negative  = "negative" in signals
+    has_positive  = "positive" in signals
+    sources_count = len(confirmed_sources)
+
+    if has_negative and has_positive:
+        return 3.0   # contradictory signals — smart to wait
+
+    if has_negative and sources_count < 2 and current_day < 3:
+        return 2.0   # partial info — waiting to corroborate
+
+    if sources_count == 0 and current_day == 0:
+        return 0.5   # day 0 caution is fine
+
+    if sources_count >= 2 and current_day >= 3:
+        return -2.0  # you have enough, stop stalling
+
+    return 1.0
+
+
+def reward_decision_correctness(
+    action_type: str,
+    decision: str,
+    ground_truth: Dict,
+    current_day: int,
+    confirmed_sources: List[str],
+) -> Tuple[float, float]:
+    """
+    Rewards correct decisions weighted by information quality.
+    Penalizes acting without consulting reliable sources.
+    Returns (reward, social_capital_delta).
+    """
+    if action_type != "make_decision":
+        return 0.0, 0.0
+
+    decision  = normalize_decision(decision)
+    event     = ground_truth["event"]
+    truth     = ground_truth["truth"]
+    sc_delta  = 0.0
+
+    high_quality = sum(
+        1 for s in confirmed_sources
+        if SOURCE_RELIABILITY.get(s, 0) > 0.7
+    )
+    info_quality = min(high_quality / 2.0, 1.0)
+
+    # correct decisions
+    if event == "layoffs" and decision == "warn_team_quietly":
+        base         = 20.0
+        timing_bonus = max(0, (5 - current_day) * 2)
+        info_bonus   = info_quality * 10
+        return round(base + timing_bonus + info_bonus, 2), 0.0
+
+    if event == "revenue_miss" and decision == "request_budget_freeze":
+        base       = 15.0
+        info_bonus = info_quality * 10
+        return round(base + info_bonus, 2), 0.0
+
+    if event == "promotion_politics" and decision == "escalate_to_leadership":
+        base       = 12.0
+        info_bonus = info_quality * 8
+        return round(base + info_bonus, 2), 0.0
+
+    if decision == "wait_for_more_signals" and current_day < 3:
+        return 2.0, 0.0
+
+    if decision == "ignore":
+        if truth.get("happening") or truth.get("missed"):
+            return -15.0, 0.0
+        return 5.0, 0.0  # correctly ignoring a non-event
+
+    # wrong decisions
+    if decision == "warn_team_quietly" and not (
+        truth.get("happening") or truth.get("missed")
+    ):
+        sc_delta = -25.0
+        return -20.0, sc_delta
+
+    if decision == "escalate_to_leadership" and current_day <= 1:
+        sc_delta = -10.0
+        return -8.0, sc_delta
+
+    # Acting without consulting anyone
+    if high_quality == 0 and decision not in ["wait_for_more_signals", "ignore"]:
+        return -10.0, 0.0
+
+    return 0.0, 0.0
+
+
+def reward_social_preservation(
+    action_type: str,
+    social_capital: float,
+) -> float:
+    """
+    Small reward for maintaining social capital above threshold.
+    Penalizes burning reputation recklessly.
+    Independent of decision correctness.
+    """
+    if action_type == "post_anonymously_to_forum":
+        return -1.0  # anonymous posting costs social capital
+
+    if social_capital >= 90:
+        return 0.5   # reward maintaining reputation
+    if social_capital < 50:
+        return -1.0  # penalty for burning reputation
+
+    return 0.0
+
+
+def reward_anti_panic(
+    action_type: str,
+    decision: str,
+    current_day: int,
+    confirmed_sources: List[str],
+) -> float:
+    """
+    Penalizes panic behavior — acting on day 0/1 without any reliable sources.
+    This is the anti-reward-hacking check.
+    """
+    if action_type != "make_decision":
+        return 0.0
+
+    decision = normalize_decision(decision)
+
+    if current_day <= 1 and decision in [
+        "warn_team_quietly", "escalate_to_leadership"
+    ]:
+        high_quality = sum(
+            1 for s in confirmed_sources
+            if SOURCE_RELIABILITY.get(s, 0) > 0.7
+        )
+        if high_quality == 0:
+            return -8.0  # panic acting — no reliable source consulted
+
+    return 0.0
+
+
+# composite reward
 
 def calculate_reward(
     action_type: str,
@@ -45,145 +214,25 @@ def calculate_reward(
     current_day: int,
     social_capital: float,
     action_history: List[Dict],
-    confirmed_sources: List[str],  # sources agent has already consulted
-) -> Tuple[float, float]:
-    
-    reward = 0.0
-    updated_social_capital = social_capital
-    truth = ground_truth["truth"]
-    event = ground_truth["event"]
-
-    # --- Epistemic behavior rewards (dense, every step) ---
-
-    if action_type == "message_character":
-        # Reward consulting high-reliability sources
-        source_value = SOURCE_RELIABILITY.get(target, 0.5)
-        reward += source_value * 3  # max +2.85 for quiet_one
-
-        # Bonus for consulting quiet_one specifically - they rarely speak
-        if target == "quiet_one":
-            reward += 2
-
-        # Penalize re-consulting same source (no new info)
-        times_consulted = sum(
-            1 for a in action_history
-            if a.get("target") == target
-        )
-        if times_consulted > 1:
-            reward -= 2 * times_consulted  # escalating penalty
-
-    if action_type == "wait":
-        signals = [a.get("signal_type") for a in action_history if a.get("signal_type")]
-        has_any_signal = len(signals) > 0
-        has_contradiction = "positive" in signals and "negative" in signals
-        sources_consulted = len(confirmed_sources)
-
-        if has_contradiction:
-            reward += 3      # contradictory signals, smart to wait
-        elif has_any_signal and sources_consulted < 2 and current_day < 3:
-            reward += 2      # have partial info, waiting to corroborate
-        elif has_any_signal and sources_consulted >= 1 and current_day < 2:
-            reward += 1      # early days, cautious waiting is fine
-        elif sources_consulted >= 2 and current_day >= 3:
-            reward -= 2      # you have enough info, stop stalling
-
-        # Always give tiny reward for not panic-acting on day 0
-        if current_day == 0:
-            reward += 0.5
-
-    if action_type == "post_anonymously_to_forum":
-        # Probing via forum post is smart but costs social capital
-        updated_social_capital -= 5
-        reward += 1  # small reward for creative probing
-
-    # --- Decision rewards (sparse, high stakes) ---
-
-    if action_type == "make_decision":
-        reward, updated_social_capital = _evaluate_decision(
-            decision=decision,
-            event=event,
-            truth=truth,
-            current_day=current_day,
-            social_capital=updated_social_capital,
-            confirmed_sources=confirmed_sources,
-        )
-
-    return reward, updated_social_capital
-
-
-def _evaluate_decision(
-    decision: str,
-    event: str,
-    truth: Dict,
-    current_day: int,
-    social_capital: float,
     confirmed_sources: List[str],
+    signal_log: List[Dict] = None,
 ) -> Tuple[float, float]:
-    
-    reward = 0.0
-    updated_social_capital = social_capital
-    decision = normalize_decision(decision)
-    
-    # How well-informed is this decision?
-    high_reliability_sources_consulted = sum(
-        1 for s in confirmed_sources
-        if SOURCE_RELIABILITY.get(s, 0) > 0.7
+
+    if signal_log is None:
+        signal_log = []
+
+    r_source   = reward_source_consultation(action_type, target, action_history)
+    r_timing   = reward_epistemic_timing(action_type, current_day, confirmed_sources, signal_log)
+    r_decision, sc_delta = reward_decision_correctness(
+        action_type, decision, ground_truth, current_day, confirmed_sources
     )
-    information_quality = min(high_reliability_sources_consulted / 2, 1.0)
+    r_social   = reward_social_preservation(action_type, social_capital)
+    r_panic    = reward_anti_panic(action_type, decision, current_day, confirmed_sources)
 
-    # --- Correct decisions ---
-    if event == "layoffs" and decision == "warn_team_quietly":
-        base = 20
-        timing_bonus = max(0, (5 - current_day) * 2)  # earlier correct = better
-        info_bonus = information_quality * 10
-        reward = base + timing_bonus + info_bonus
+    total_reward       = r_source + r_timing + r_decision + r_social + r_panic
+    updated_social     = social_capital + sc_delta
 
-    elif event == "revenue_miss" and decision == "request_budget_freeze":
-        base = 15
-        info_bonus = information_quality * 10
-        reward = base + info_bonus
-
-    elif event == "promotion_politics" and decision == "escalate_to_leadership":
-        base = 12
-        reward = base + information_quality * 8
-
-    elif decision == "wait_for_more_signals" and current_day < 3:
-        # Waiting early is fine
-        reward = 2
-
-    elif decision == "ignore":
-        # Ignoring a real event is bad
-        if truth.get("happening") or truth.get("missed"):
-            reward = -15
-        else:
-            reward = 5  # correctly ignoring a non-event
-
-    # --- Wrong decisions ---
-    elif decision == "warn_team_quietly" and not (
-        truth.get("happening") or truth.get("missed")
-    ):
-        # False alarm - costs social capital
-        updated_social_capital -= 25
-        reward = -20
-
-    elif decision == "escalate_to_leadership" and current_day <= 1:
-        # Too early, not enough info
-        updated_social_capital -= 10
-        reward = -8
-
-    # Penalize acting without good information
-    if high_reliability_sources_consulted == 0 and decision not in [
-        "wait_for_more_signals", "ignore"
-    ]:
-        reward -= 10  # never act on gossip alone
-
-    return reward, updated_social_capital
-
-
-def _signals_are_contradictory(action_history: List[Dict]) -> bool:
-    """Check if agent has received conflicting signals"""
-    signals = [a.get("signal_type") for a in action_history if a.get("signal_type")]
-    return "positive" in signals and "negative" in signals
+    return round(total_reward, 2), updated_social
 
 
 def calculate_final_reward(
@@ -196,52 +245,89 @@ def calculate_final_reward(
     event = ground_truth["event"]
     truth = ground_truth["truth"]
 
-    # Did the agent make the right final call?
-    correct_decision_made = any(
-        _is_correct_decision(a.get("action", ""), event, truth)
+    correct = any(
+        _is_correct(a.get("action", ""), event, truth)
         for a in action_history
     )
 
-    # Did they consult quality sources before acting?
-    good_sources_used = sum(
+    good_sources = sum(
         1 for s in confirmed_sources
         if SOURCE_RELIABILITY.get(s, 0) > 0.7
     )
 
-    # Did they avoid causing harm?
-    harmful_actions = sum(
+    harmful = sum(
         1 for a in action_history
         if _is_harmful(a.get("action", ""), truth)
     )
 
-    accuracy_score = 1.0 if correct_decision_made else 0.0
-    epistemic_score = min(good_sources_used / 2, 1.0)
-    social_score = social_capital / 100
-    harm_penalty = harmful_actions * 0.2
+    # Timeout penalty — did the agent just wait the whole episode?
+    all_waits = all(
+        "wait" in a.get("action", "") or "message" in a.get("action", "")
+        for a in action_history
+    )
+    never_decided = not any(
+        a.get("action", "") not in ["wait", ""]
+        and "message" not in a.get("action", "")
+        for a in action_history
+    )
+
+    accuracy_score  = 1.0 if correct else 0.0
+    epistemic_score = min(good_sources / 2.0, 1.0)
+    social_score    = social_capital / 100.0
+    harm_score      = max(0.0, 1.0 - harmful * 0.3)
+    timeout_penalty = -10.0 if never_decided else 0.0
 
     final = (
-        0.40 * accuracy_score +
-        0.25 * epistemic_score +
-        0.20 * social_score +
-        0.15 * (1 - harm_penalty)
-    ) * 100
+        0.40 * accuracy_score  * 100 +
+        0.25 * epistemic_score * 100 +
+        0.20 * social_score    * 100 +
+        0.15 * harm_score      * 100 +
+        timeout_penalty
+    )
 
     return round(final, 2)
 
 
-def _is_correct_decision(action: str, event: str, truth: Dict) -> bool:
-    action = action.lower()
-    if event == "layoffs" and "warn" in action:
-        return True
-    if event == "revenue_miss" and ("freeze" in action or "budget" in action):
-        return True
-    if event == "promotion_politics" and "escalate" in action:
-        return True
+def _is_correct(action: str, event: str, truth: Dict) -> bool:
+    a = action.lower()
+    if event == "layoffs"           and "warn" in a:       return True
+    if event == "revenue_miss"      and "freeze" in a:     return True
+    if event == "promotion_politics" and "escalate" in a:  return True
     return False
 
 
 def _is_harmful(action: str, truth: Dict) -> bool:
-    action = action.lower()
-    return "panic" in action or "spread" in action or (
-        "warn" in action and not truth.get("happening")
+    a = action.lower()
+    return (
+        "panic" in a or
+        "spread" in a or
+        ("warn" in a and not truth.get("happening") and not truth.get("missed"))
     )
+
+
+def get_reward_breakdown(
+    ground_truth: Dict,
+    action_history: List[Dict],
+    social_capital: float,
+    confirmed_sources: List[str],
+) -> Dict:
+    """
+    Returns individual reward components for UI display and monitoring.
+    This is what you show judges — not just a single number.
+    """
+    event = ground_truth["event"]
+    truth = ground_truth["truth"]
+
+    correct      = any(_is_correct(a.get("action",""), event, truth) for a in action_history)
+    good_sources = sum(1 for s in confirmed_sources if SOURCE_RELIABILITY.get(s,0) > 0.7)
+    harmful      = sum(1 for a in action_history if _is_harmful(a.get("action",""), truth))
+
+    return {
+        "accuracy":  1.0 if correct else 0.0,
+        "epistemic": min(good_sources / 2.0, 1.0),
+        "social":    social_capital / 100.0,
+        "harm":      max(0.0, 1.0 - harmful * 0.3),
+        "sources_consulted": confirmed_sources,
+        "correct_decision":  correct,
+        "harmful_actions":   harmful,
+    }
