@@ -42,7 +42,6 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         if seed is not None:
             random.seed(seed)
 
-        # FIX: was duplicated — runs once now
         if self.agent_actions_history:
             recent = [a["reward"] for a in self.agent_actions_history[-10:]]
             avg = sum(recent) / max(len(recent), 1)

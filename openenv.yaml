@@ -1,0 +1,12 @@
+tasks:
+  - name: easy
+    factory: environment.tasks:task_easy
+    grader: environment.tasks:grade_easy
+
+  - name: medium
+    factory: environment.tasks:task_medium
+    grader: environment.tasks:grade_medium
+
+  - name: hard
+    factory: environment.tasks:task_hard
+    grader: environment.tasks:grade_hard
