@@ -16,7 +16,7 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
         self._last_action_type = None 
         self.difficulty = difficulty 
         self.characters = build_default_characters() 
-        self.max_days = 5
+        self.max_days = 15  # Extended from 5 to force deeper world modeling with contradictions
         self._init_episode()
 
     def _init_episode(self):
@@ -70,6 +70,7 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
 
         for name, char in self.characters.items(): # char is a Character object from characters.py
             if char.should_speak(self.current_day):
+                # Pass timeline context so character can reference correct day's information
                 message = char.generate_message(ground_truth=self.ground_truth, day=self.current_day)
                 if not message:
                     continue
@@ -123,6 +124,7 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
                     question=question,
                     ground_truth=self.ground_truth,
                     agent_reputation=self.social_capital,
+                    day=self.current_day,
                 )
                 dm_response = response
                 self.confirmed_sources.append(target)

@@ -54,10 +54,15 @@ def reward_epistemic_timing(
     has_negative = "negative" in signals
     has_positive = "positive" in signals
     sources_count = len(confirmed_sources)
-    if has_negative and has_positive:      return 3.0
-    if has_negative and sources_count < 2 and current_day < 3: return 2.0
+    
+    # Extended episode (15 days) with contradictions: reward patient belief reconciliation
+    # Contradictions planted at days 4-5 and resolved at days 8-9
+    # Agent should hold through contradiction, not panic-decide at day 5
+    if has_negative and has_positive:      return 4.0  # +1 for handling conflicting signals in extended context
+    if has_negative and sources_count < 2 and current_day < 6: return 2.5  # +0.5 for patience through day 4-5 contradictions
     if sources_count == 0 and current_day == 0: return 0.5
-    if sources_count >= 2 and current_day >= 3: return -2.0
+    if sources_count >= 2 and current_day >= 6 and current_day <= 9: return 1.0  # Reward gathering during resolution window
+    if sources_count >= 2 and current_day >= 10: return -1.0  # Penalize late decisions after resolution
     return 1.0
 
 
@@ -68,35 +73,44 @@ def reward_decision_correctness(
         return 0.0, 0.0
 
     decision = normalize_decision(decision)
-    event    = ground_truth.get("event", "")
-    truth    = ground_truth.get("truth", {})
+    # Handle both old format (single event) and new timeline format
+    event_type = ground_truth.get("event_type") or ground_truth.get("event", "")
+    truth    = ground_truth.get("core_truth") or ground_truth.get("truth", {})
 
     high_quality = sum(1 for s in confirmed_sources if SOURCE_RELIABILITY.get(s, 0) > 0.7)
     info_quality = min(high_quality / 2.0, 1.0)
 
-    # ── Correct decisions (max ~10-11, was ~40) ───────────────────────────────
-    if event == "layoffs" and decision == "warn_team_quietly":
-        return round(6.0 + max(0, 5 - current_day) + info_quality * 4.0, 2), 0.0
+    # ── Correct decisions (max ~10-14, calibrated for 15-day episodes) ───────────────────────────────
+    # In 15-day episodes, waiting through contradiction (day 5-8) and deciding correctly is harder
+    # Reward timing-aware correctness: early correct = 6-7pts, late correct after contradiction = 8-9pts
+    if event_type == "layoffs" and decision == "warn_team_quietly":
+        # Bonus for deciding during/after resolution window (days 8-14) vs panicking day 4-5
+        timing_bonus = 2.0 if current_day >= 8 else max(0, 1 - current_day / 6)
+        return round(6.0 + timing_bonus + info_quality * 4.0, 2), 0.0
 
-    if event == "revenue_miss" and decision == "request_budget_freeze":
-        return round(6.0 + info_quality * 4.0, 2), 0.0
+    if event_type == "revenue_miss" and decision == "request_budget_freeze":
+        timing_bonus = 2.0 if current_day >= 6 else 0.0
+        return round(6.0 + timing_bonus + info_quality * 4.0, 2), 0.0
 
-    if event == "promotion_politics" and decision == "escalate_to_leadership":
-        return round(5.0 + info_quality * 3.0, 2), 0.0
+    if event_type == "promotion_politics" and decision == "escalate_to_leadership":
+        timing_bonus = 1.5 if current_day >= 9 else 0.0
+        return round(5.0 + timing_bonus + info_quality * 3.0, 2), 0.0
 
-    if decision == "wait_for_more_signals" and current_day < 3:
-        return 2.0, 0.0
+    if decision == "wait_for_more_signals" and current_day < 8:  # extended patience window
+        return 2.5, 0.0
 
     if decision == "ignore":
         if truth.get("happening") or truth.get("missed"):
             return -6.0, 0.0   
         return 3.0, 0.0
 
-    # Wrong decisions 
+    # Wrong decisions (scaled for extended episodes with contradictions)
     if decision == "warn_team_quietly" and not (truth.get("happening") or truth.get("missed")):
-        return -8.0, -10.0    
+        # Panic deciding at days 4-5 (during planted contradiction) = worse than later mistakes
+        panic_penalty = 3.0 if 4 <= current_day <= 5 else 0.0
+        return round(-8.0 - panic_penalty, 2), -10.0    
 
-    if decision == "escalate_to_leadership" and current_day <= 1:
+    if decision == "escalate_to_leadership" and current_day <= 2:
         return -4.0, -5.0     
 
     if high_quality == 0 and decision not in ["wait_for_more_signals", "ignore"]:
@@ -151,8 +165,14 @@ def calculate_reward(
 def calculate_final_reward(
     ground_truth: Dict, action_history: List[Dict], social_capital: float, confirmed_sources: List[str]
 ) -> float:
-    event = ground_truth.get("event", "")
-    truth = ground_truth.get("truth", {})
+    # Handle both old single-event format and new timeline format
+    if "event_type" in ground_truth:
+        event = ground_truth.get("event_type", "")
+        truth = ground_truth.get("core_truth", {})
+    else:
+        event = ground_truth.get("event", "")
+        truth = ground_truth.get("truth", {})
+    
     correct      = any(_is_correct(a.get("action", ""), event, truth) for a in action_history)
     good_sources = sum(1 for s in confirmed_sources if SOURCE_RELIABILITY.get(s, 0) > 0.7)
     harmful      = sum(1 for a in action_history if _is_harmful(a.get("action", ""), truth))
@@ -186,8 +206,14 @@ def _is_harmful(action: str, truth: Dict) -> bool:
 def get_reward_breakdown(
     ground_truth: Dict, action_history: List[Dict], social_capital: float, confirmed_sources: List[str]
 ) -> Dict:
-    event = ground_truth.get("event", "")
-    truth = ground_truth.get("truth", {})
+    # Handle both old single-event format and new timeline format
+    if "event_type" in ground_truth:
+        event = ground_truth.get("event_type", "")
+        truth = ground_truth.get("core_truth", {})
+    else:
+        event = ground_truth.get("event", "")
+        truth = ground_truth.get("truth", {})
+    
     correct      = any(_is_correct(a.get("action", ""), event, truth) for a in action_history)
     good_sources = sum(1 for s in confirmed_sources if SOURCE_RELIABILITY.get(s, 0) > 0.7)
     harmful      = sum(1 for a in action_history if _is_harmful(a.get("action", ""), truth))
