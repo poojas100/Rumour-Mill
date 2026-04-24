@@ -1,12 +1,48 @@
-tasks:
-  - name: easy
-    factory: environment.tasks:task_easy
-    grader: environment.tasks:grade_easy
+name: rumor-mill
+version: "1.0.0"
+description: >
+  An RL environment where an agent must detect unreliable sources
+  in a noisy corporate information network. Tests theory-of-mind
+  reasoning and epistemic calibration across 15-day episodes with
+  planted contradictions.
+author: poojas100
+tags:
+  - multi-agent
+  - scalable-oversight
+  - fleet-ai
+  - theory-of-mind
+  - information-reliability
 
-  - name: medium
-    factory: environment.tasks:task_medium
-    grader: environment.tasks:grade_medium
+environment:
+  class: RumorMillEnv
+  module: environment.rumor_env
+  max_steps: 15
 
-  - name: hard
-    factory: environment.tasks:task_hard
-    grader: environment.tasks:grade_hard
+actions:
+  - name: message_character
+    description: DM a character to gather information
+    parameters:
+      target: string
+      content: string
+
+  - name: wait
+    description: Wait and observe without acting
+
+  - name: make_decision
+    description: Act on gathered information
+    parameters:
+      decision: string
+
+  - name: post_reddit
+    description: Post anonymously to the internal forum
+    parameters:
+      content: string
+
+reward:
+  components:
+    - source_consultation
+    - epistemic_timing
+    - decision_correctness
+    - social_preservation
+    - anti_panic
+  range: [-20, 35]
