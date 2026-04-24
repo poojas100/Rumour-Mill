@@ -11,7 +11,7 @@ def generate_scenario(difficulty: int = 1) -> Dict:
     import random
 
     noise_level = difficulty * 0.2
-    active_count = min(2 + difficulty, 5)
+    active_count = min(2 + difficulty, 5) 
 
     scenarios = [
         {

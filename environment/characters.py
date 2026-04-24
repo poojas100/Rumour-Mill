@@ -31,7 +31,7 @@ class Character:
         """
         Generate message based on personality and ground truth
         """
-        tells_truth = random.random() < self.accuracy
+        tells_truth = random.random() < self.accuracy #probability of telling the truth is based on accuracy parameter
         event = ground_truth["event"]
         truth = ground_truth["truth"]
 

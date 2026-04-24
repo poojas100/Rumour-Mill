@@ -76,7 +76,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-This installs the local demo dependencies plus `openenv-core`, which the environment now uses instead of `gym`.
+This installs the local demo dependencies plus `openenv-core`
 
 ### 3. Run a sample episode to verify the environment works
 
@@ -105,10 +105,6 @@ Important:
 - you may need to install extra training packages manually before this works
 - for many setups, training is better on Colab or a GPU machine
 - local development should start with the sample episode and Streamlit UI first
-
-## Teammate setup checklist
-
-If someone on the team is opening the project for the first time, these are the minimum commands they should run:
 
 ```powershell
 cd c:\Users\pooja\Rumour-Mill
