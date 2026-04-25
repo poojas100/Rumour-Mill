@@ -85,7 +85,7 @@ def parse_action(raw: str) -> RumorAction:
     return RumorAction(type="wait")
 
 
-def run_episode():
+def run_episode():     
     env = RumorMillEnv()
     obs = env.reset()
 

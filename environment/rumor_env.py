@@ -129,49 +129,53 @@ class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
                 reward_breakdown={"repeated_action_penalty": -10.0},
             )
 
+        # In the message_character block, restructure to this order:
+
         if action.type == "message_character":
-            target = action.target or ""
+            target   = action.target or ""
             question = action.content or ""
 
             if target not in self.characters:
                 dm_response = f"Unknown character: {target}"
-                reward = -0.5
+                reward      = -0.5
             else:
                 response = self.characters[target].respond(
                     question=question,
                     ground_truth=self.ground_truth,
                     agent_reputation=self.social_capital,
+                    day=self.current_day,
                 )
                 dm_response = response
 
-                # Dedup — only add if not already consulted
                 if target not in self.confirmed_sources:
                     self.confirmed_sources.append(target)
 
                 if response:
                     lowered = response.lower()
-                    if any(w in lowered for w in ["not good", "miss", "layoff", "cut", "happening", "bad"]):
+                    if any(w in lowered for w in ["not good","miss","layoff","cut","happening","bad"]):
                         self.signal_log.append({"type": "negative", "source": target})
-                    elif any(w in lowered for w in ["fine", "good", "crushed", "amazing", "overblown"]):
+                    elif any(w in lowered for w in ["fine","good","crushed","amazing","overblown"]):
                         self.signal_log.append({"type": "positive", "source": target})
 
+                # Pass action_history BEFORE appending current action
+                # so repeat-consultation penalty uses previous history only
                 reward, self.social_capital = calculate_reward(
                     action_type="message_character",
                     decision="", target=target,
                     ground_truth=self.ground_truth,
                     current_day=self.current_day,
                     social_capital=self.social_capital,
-                    action_history=self.agent_actions_history,
+                    action_history=self.agent_actions_history,  # not yet appended
                     confirmed_sources=self.confirmed_sources,
                     signal_log=self.signal_log,
                 )
 
             self.agent_actions_history.append({
-                "day": self.current_day,
-                "action": f"message {target}",
-                "target": target,
+                "day":         self.current_day,
+                "action":      f"message {target}",
+                "target":      target,
                 "signal_type": self.signal_log[-1]["type"] if self.signal_log else None,
-                "reward": reward,
+                "reward":      reward,
             })
 
         elif action.type == "make_decision":

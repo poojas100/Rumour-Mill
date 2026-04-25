@@ -16,7 +16,7 @@ import os
 import random
 from pathlib import Path
 
-# ── MODE DETECTION ────────────────────────────────────────────
+# MODE DETECTION
 _THIS_DIR  = Path(__file__).resolve().parent
 _PROJECT   = _THIS_DIR.parent
 MODEL_PATH = _PROJECT / "models" / "rumor_grpo_model"
@@ -25,7 +25,7 @@ MODEL_PATH = _PROJECT / "models" / "rumor_grpo_model"
 _FORCE_DEMO  = os.environ.get("RUMOUR_DEMO", "").strip() == "1"
 _MODEL_READY = MODEL_PATH.exists() and any(MODEL_PATH.iterdir()) and not _FORCE_DEMO
 
-# ── SCRIPTED AGENT (instant, no GPU needed) ───────────────────
+# SCRIPTED AGENT (instant, no GPU needed)─
 _STEP_COUNTER = [0]  # mutable so nested function can update it
 
 def _scripted_generate(prompt: str) -> str:
@@ -50,20 +50,37 @@ def _scripted_generate(prompt: str) -> str:
             except:
                 pass
 
-    sequence = [
-        "message quiet_one",
-        "message leaker",
-        "wait",
-        "message politician",
-        "decide warn_team_quietly",
-    ]
+    early_sequence = {
+        0: "message quiet_one",
+        1: "message leaker",
+        2: "wait",
+        3: "message politician",
+    }
 
-    action = sequence[min(day, len(sequence) - 1)]
+    if day in early_sequence:
+        action = early_sequence[day]
+    else:
+        # Day 4+ — read signals from prompt to pick correct decision
+        prompt_lower = prompt.lower()
+
+        if any(w in prompt_lower for w in [
+            "budget", "revenue", "q4", "freeze", "miss", "numbers", "finance"
+        ]):
+            action = "decide request_budget_freeze"
+
+        elif any(w in prompt_lower for w in [
+            "promotion", "candidate", "politics", "career", "leadership role"
+        ]):
+            action = "decide escalate_to_leadership"
+
+        else:
+            action = "decide warn_team_quietly"
+    action = early_sequence.get(day, action)
     print(f"  [DEMO MODE] day={day} → '{action}'")
     return action
 
 
-# ── MODEL AGENT (slow, needs trained model on disk) ───────────
+# MODEL AGENT (slow, needs trained model on disk)─
 _model     = None
 _tokenizer = None
 
@@ -112,7 +129,7 @@ def _model_generate(prompt: str, max_new_tokens: int = 32) -> str:
     return _tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
-# ── PUBLIC API ────────────────────────────────────────────────
+# PUBLIC API
 
 def generate(prompt: str, max_new_tokens: int = 32) -> str:
     """
@@ -128,7 +145,7 @@ def generate(prompt: str, max_new_tokens: int = 32) -> str:
     return _scripted_generate(prompt)
 
 
-# ── STATUS ON IMPORT ──────────────────────────────────────────
+# STATUS ON IMPORT
 if _MODEL_READY:
     print(f"[inference_agent] Model found at {MODEL_PATH} — will load on first call.")
 else:
