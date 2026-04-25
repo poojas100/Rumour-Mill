@@ -23,7 +23,7 @@ DECISIONS  = [
 def build_prompt(obs) -> str:
     msgs = "\n".join(f"  {m}" for m in obs.messages) or "  (no messages)"
     redd = "\n".join(f"  {p}" for p in obs.reddit_posts) or "  (none)"
-    return f"""You are navigating workplace rumours. Choose ONE action.
+    return f"""You are navigating rumours in a social network. Choose ONE action.
 
 DAY {obs.day}/5  |  Reputation: {obs.social_capital:.0f}/100
 
@@ -33,7 +33,7 @@ MESSAGES:
 REDDIT:
 {redd}
 
-Valid actions (pick exactly one, copy the format):
+Valid actions (copy one exactly, no explanation):
   wait
   message quiet_one
   message leaker
@@ -46,7 +46,7 @@ Valid actions (pick exactly one, copy the format):
   decide request_budget_freeze
   decide ignore
 
-Examples of good responses:
+Examples:
   message quiet_one
   decide warn_team_quietly
   wait
@@ -57,7 +57,7 @@ Your single action (one line only):"""
 def parse_action(raw: str) -> RumorAction:
     lines = [l.strip().lstrip("-•*123456789. ") for l in raw.strip().split("\n")]
     lines = [l for l in lines if l]
-    text = lines[0].lower() if lines else ""
+    text  = lines[0].lower() if lines else ""
 
     if "message" in text or "dm" in text or "ask" in text:
         target = next((c for c in CHARACTERS if c in text or c.replace("_"," ") in text), None)
@@ -65,7 +65,7 @@ def parse_action(raw: str) -> RumorAction:
             target = next((c for c in CHARACTERS if c in raw.lower()), "quiet_one")
         return RumorAction(type="message_character", target=target, content=text)
 
-    if "decide" in text or "warn" in text or "escalate" in text or "freeze" in text or "ignore" in text:
+    if any(w in text for w in ["decide", "warn", "escalate", "freeze", "ignore", "wait_for"]):
         decision = next((d for d in DECISIONS if d.replace("_"," ") in text or d in text), None)
         if not decision:
             if "warn"    in text: decision = "warn_team_quietly"
@@ -79,7 +79,7 @@ def parse_action(raw: str) -> RumorAction:
         if char in text or char.replace("_", " ") in text:
             return RumorAction(type="message_character", target=char, content=text)
 
-    if "reddit" in text or "post" in text or "forum" in text:
+    if any(w in text for w in ["reddit", "post", "forum"]):
         return RumorAction(type="post_reddit", content=text)
 
     return RumorAction(type="wait")
@@ -105,10 +105,10 @@ def run_episode():
         print(f"\n{'─'*60}")
         print(f"STEP {step} | Day {obs.day}/5 | Reputation: {obs.social_capital:.0f}/100")
 
-        prompt = build_prompt(obs)
+        prompt     = build_prompt(obs)
         raw_output = agent_generate(prompt)
 
-        first_line = [l.strip() for l in raw_output.strip().split("\n") if l.strip()]
+        first_line     = [l.strip() for l in raw_output.strip().split("\n") if l.strip()]
         display_output = first_line[0] if first_line else "(empty)"
         print(f"  🤖 Model said:  '{display_output}'")
 
@@ -121,7 +121,7 @@ def run_episode():
         obs = env.step(action)
         total_reward += obs.reward
 
-        print(f"  💰 Reward:      {obs.reward:+.2f}  (total: {total_reward:+.2f})")
+        print(f"  💰 Reward:      {obs.reward:+.4f}  (total: {total_reward:+.4f})")
         print(f"  👥 Reputation:  {obs.social_capital:.0f}/100")
 
         if obs.dm_response:
@@ -136,17 +136,22 @@ def run_episode():
             print(f"\n{'='*60}")
             print("EPISODE COMPLETE")
             if obs.ground_truth_revealed:
-                event = obs.ground_truth_revealed.get("event", "unknown")
-                truth = obs.ground_truth_revealed.get("truth", {})
-                print(f"  🔍 Truth was:  {event}")       
+                gt = obs.ground_truth_revealed
+                # ✅ FIX: support both old format and new timeline format
+                event = gt.get("event_type") or gt.get("event", "unknown")
+                truth = gt.get("core_truth") or gt.get("truth", {})
+                domain = gt.get("domain", "")
+                print(f"  🌐 Domain:     {domain}")
+                print(f"  🔍 Truth was:  {event}")
                 print(f"  📊 Details:    {truth}")
-            print(f"  🏆 Total reward: {total_reward:+.2f}")
+            print(f"  🏆 Total reward: {total_reward:+.4f}")
             if obs.reward_breakdown:
                 rb = obs.reward_breakdown
                 print(f"  📈 Accuracy:   {rb.get('accuracy', 0):.0%}")
                 print(f"  📈 Epistemic:  {rb.get('epistemic', 0):.0%}")
                 print(f"  📈 Social:     {rb.get('social', 0):.0%}")
                 print(f"  📈 Sources:    {rb.get('sources_consulted', [])}")
+                print(f"  📈 Correct:    {rb.get('correct_decision', False)}")
             break
 
 
