@@ -90,9 +90,8 @@ def _load_model():
     _tokenizer = AutoTokenizer.from_pretrained(str(MODEL_PATH))
     _model = AutoModelForCausalLM.from_pretrained(
         str(MODEL_PATH),
-        dtype=torch.float32,
-        device_map="cpu",
-        low_cpu_mem_usage=True,
+        torch_dtype=torch.float16,  # use half precision to reduce RAM usage
+        device_map="auto"  # automatically put model on GPU if available
     )
     print("[inference_agent] ✅ Model loaded.")
     return True
@@ -105,8 +104,8 @@ def _model_generate(prompt: str, max_new_tokens: int = 32) -> str:
         output = _model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=0.9,
+            do_sample=False,
+            temperature=0.0,
             pad_token_id=_tokenizer.eos_token_id,
         )
     new_tokens = output[0][inputs["input_ids"].shape[1]:]

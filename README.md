@@ -135,6 +135,7 @@ Launch the visual demo:
 
 ```bash
 streamlit run demo/visualize.py
+python -m streamlit run demo/visualize.py
 ```
 
 ---

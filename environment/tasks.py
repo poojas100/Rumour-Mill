@@ -1,6 +1,6 @@
 from environment.rumor_env import RumorMillEnv
 
-# ---------- TASK FACTORIES ----------
+# TASK FACTORIES
 
 def task_easy():
     return RumorMillEnv(difficulty=1)
@@ -11,7 +11,7 @@ def task_medium():
 def task_hard():
     return RumorMillEnv(difficulty=3)
 
-# ---------- GRADERS ----------
+# GRADERS
 
 def grade_easy(env: RumorMillEnv):
     return {
