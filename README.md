@@ -96,9 +96,6 @@ The belief recovery bonus is the key new signal: an agent that flip-flops during
 ![Baseline vs trained reward](assets/reward_curve.png)
 *Episode total reward over 500 training steps. Orange = random baseline. Blue = PPO-trained agent. Training run on Colab with Unsloth + TRL.*
 
-![Reward curve](assets/reward_curve.png)
-*Left: GRPO trained agent vs random and heuristic baselines. Right: average reward by policy type. Training run on Colab T4 with TRL GRPO.*
-
 ### Before and after training: a qualitative example
 
 **Untrained agent (day 4 — contradiction arrives):**
@@ -182,7 +179,8 @@ Rumour-Mill/
 
 | Resource | Link |
 |---|---|
-| Hugging Face Space | https://huggingface.co/spaces/RumorMill/RumorMill |
+| Hugging Face Space | https://huggingface.co/RumorMill |
 | GitHub | https://github.com/poojas100/Rumour-Mill |
 | Training notebook (Colab) | *(add link)* |
 | Mini-blog (Hugging Face) | *(add link)* |
+| Demo video | *(add link, under 2 minutes)* |
