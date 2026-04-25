@@ -8,7 +8,6 @@ from environment.models import RumorAction, RumorObservation, RumorState
 from environment.reward import calculate_final_reward, calculate_reward
 from openenv.core.env_server.interfaces import Environment
 
-
 class RumorMillEnv(Environment[RumorAction, RumorObservation, RumorState]):
 
     def __init__(self, difficulty: int = 1):
