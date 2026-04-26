@@ -235,7 +235,15 @@ def calculate_reward(
 
     # Weighted combination, then clamp to [-1, +1]
     # Components are already mostly in [-1,1] but can stack — clamp enforces hard bound
-    total = _clamp(raw / 2.0)  # divide by 2 since multiple components can stack
+    n_fired = sum([
+        r_source != 0,
+        r_timing != 0, 
+        r_decision != 0,
+        r_social != 0,
+        r_panic != 0,
+    ])
+    divisor = max(1.0, n_fired * 0.6)  # less dilution for single signals
+    total   = _clamp(raw / divisor)
 
     return round(total, 4), social_capital + sc_delta
 
