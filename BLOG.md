@@ -1,6 +1,11 @@
-# VeritaRL: teaching an LLM to survive a week of office politics
+# VeritaRL: Teaching LLMs to Find Truth When Sources Have Agendas
 
-> *Can an LLM figure out what's really happening — when everyone it talks to has a hidden agenda?*
+> *Large language models are getting better at answering questions, summarizing documents, and generating content. But many real-world decisions don’t come from clean facts — they come through people. And people have incentives.*
+**A manager may downplay risk. A competitor may spread doubt. A spokesperson may deny something strategically. A rumor may contain partial truth. In these settings, the challenge is not just understanding language — it is figuring out what to believe.
+
+That is the problem VeritaRL is built to tackle.
+
+VeritaRL is an openenv-compatible reinforcement learning environment designed to train LLM agents in truth-seeking under adversarial information. Instead of giving models direct facts, the environment places them in a short social simulation where information arrives through characters with different motives and reliability levels.**
 
 **VeritaRL** is an `openenv`-compatible RL environment that trains LLM agents on the one thing current LLMs are bad at: **holding a belief, watching it get contradicted, and deciding whether to update or resist.**
 
