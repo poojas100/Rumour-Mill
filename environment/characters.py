@@ -118,7 +118,7 @@ class Character:
         self.confidence      = kwargs.get("confidence", accuracy)
         self.frequency       = kwargs.get("frequency", 0.5)
         self.posts_on_reddit = kwargs.get("posts_on_reddit", False)
-        self.ollama_model    = kwargs.get("model", "phi3")
+        self.ollama_model    = kwargs.get("model", "llama3")
         self.memory: List[Dict] = []
 
     def should_speak(self, day: int) -> bool:
@@ -216,14 +216,29 @@ class Character:
     # Fast DM templates for non-LLM characters
     FAST_DM = {
         "optimistic": {
-            "layoffs":           "I think the rumors are overblown — leadership has a plan.",
-            "revenue_miss":      "We will bounce back — one rough quarter is not the end.",
-            "promotion_politics":"I think the best person will get it — the process is fair.",
+            "layoffs":           "I think the rumors are overblown -- leadership has a plan.",
+            "revenue_miss":      "We will bounce back -- one rough quarter is not the end.",
+            "promotion_politics":"I think the best person will get it -- the process is fair.",
         },
         "dramatic": {
             "layoffs":           "They are definitely happening. I have heard it from three people.",
             "revenue_miss":      "Q4 was an absolute disaster. Budget freeze is certain.",
             "promotion_politics":"Everyone is talking about it like it is already decided.",
+        },
+        "reserved": {
+            "layoffs":           "Something is happening around Engineering. I would not ignore it.",
+            "revenue_miss":      "The numbers were not good. Q4 did not go as planned.",
+            "promotion_politics":"There are conversations above our level. Outcome is unclear.",
+        },
+        "strategic": {
+            "layoffs":           "Ask yourself who benefits from this narrative. Cuts look real.",
+            "revenue_miss":      "The accountability conversations will be interesting. Miss is real.",
+            "promotion_politics":"Think about relationships, not just track record.",
+        },
+        "anonymous": {
+            "layoffs":           "You did not hear this from me -- cuts are real. Engineering.",
+            "revenue_miss":      "The numbers are worse than they will admit. Budget freeze coming.",
+            "promotion_politics":"The decision is already made. This is theatre.",
         },
     }
 
@@ -236,11 +251,9 @@ class Character:
         tells_truth = random.random() < self.accuracy
         event       = self._get_event(ground_truth)
 
-        # Fast DM for template characters
         if not self._uses_llm():
             event_dm = self.FAST_DM.get(self.personality, {})
-            return event_dm.get(event,
-                   event_dm.get("layoffs", "Hard to say right now."))
+            return event_dm.get(event, "Something is going on but I cannot say more.")
 
         # Ollama DM for LLM characters
         phase_map = {0:"early rumors", 1:"spreading rumors",
@@ -320,20 +333,20 @@ def build_default_characters() -> Dict[str, Character]:
             personality="reserved",
             accuracy=0.95,
             frequency=0.25,
-            model="phi3",
+            model="llama3",
         ),
         "politician": Character(
             personality="strategic",
             accuracy=0.70,
             agenda="advance career",
             frequency=0.55,
-            model="phi3",
+            model="llama3",
         ),
         "leaker": Character(
             personality="anonymous",
             accuracy=0.80,
             posts_on_reddit=True,
             frequency=0.60,
-            model="phi3",
+            model="llama3",
         ),
     }
