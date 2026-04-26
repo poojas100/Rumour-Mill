@@ -1,5 +1,5 @@
 ---
-title: Rumor Mill
+title: VeritaRL
 emoji: 🕵️
 colorFrom: indigo
 colorTo: purple

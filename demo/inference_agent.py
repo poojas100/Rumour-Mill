@@ -9,17 +9,33 @@ Three modes (auto-detected):
 To force demo mode:   set RUMOUR_DEMO=1  in your terminal
 
 Optional:
-  RUMOUR_QUIET=1       suppress import banner
-  RUMOUR_AGENT_LOG=1   print each scripted-agent decision ([DEMO ...])
+  RUMOUR_QUIET=1         suppress import banner
+  RUMOUR_AGENT_LOG=1     print each scripted-agent decision ([DEMO ...])
+  RUMOUR_LOAD_WARN=1     show tokenizer/triton/deprecation warnings during load
+                          (off by default; harmless on Windows + CPU)
 
 Requirements for MODEL/PARTIAL mode:
   pip install torch transformers accelerate safetensors
+
+If you see: RuntimeError: operator torchvision::nms does not exist  (or a misleading
+  ModuleNotFoundError: LlamaForCausalLM), your torch and torchvision builds do not
+  match, or you are on Python 3.14 with experimental wheels. Fix (pick one):
+  - Reinstall together from the same index, e.g. CPU:
+      pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cpu
+  - Text-only:  pip uninstall torchvision  (then retry; Rumour Mill does not need it)
+  - Prefer Python 3.11/3.12 for stable PyTorch. Or run with RUMOUR_DEMO=1 to skip the LLM.
 """
 
 import os
 import json
 import random as _rng
+import warnings
 from pathlib import Path
+import platform
+
+if platform.system() == "Windows":
+    if os.environ.get("RUMOUR_FORCE_FULL", "0") != "1":
+        os.environ["RUMOUR_DEMO"] = "1"
 
 _THIS_DIR  = Path(__file__).resolve().parent
 _PROJECT   = _THIS_DIR.parent
@@ -28,6 +44,7 @@ MODEL_PATH = _PROJECT / "models" / "rumor_grpo_model"
 _FORCE_DEMO = os.environ.get("RUMOUR_DEMO", "").strip() == "1"
 _IMPORT_BANNER = os.environ.get("RUMOUR_QUIET", "").strip() != "1"
 _AGENT_LOG = os.environ.get("RUMOUR_AGENT_LOG", "").strip() == "1"
+_LOAD_WARN = os.environ.get("RUMOUR_LOAD_WARN", "").strip() == "1"
 
 
 def _agent_log(msg: str) -> None:
@@ -269,6 +286,39 @@ def _find_available_layers():
     return available_layers, (has_embed, has_norm, has_lm_head)
 
 
+def _exception_chain_text(exc: BaseException) -> str:
+    """Flatten __cause__ chain for pattern matching (torch / torchvision / transformers)."""
+    parts: list[str] = []
+    cur: BaseException | None = exc
+    while cur is not None:
+        parts.append(f"{type(cur).__name__}: {cur}")
+        cur = cur.__cause__
+    return " | ".join(parts).lower()
+
+
+def _is_torchvision_mismatch_error(exc: BaseException) -> bool:
+    t = _exception_chain_text(exc)
+    if "operator torchvision::nms" in t or "torchvision::nms" in t:
+        return True
+    if "torchvision" in t and ("register_fake" in t or "nms" in t):
+        return True
+    if "llamaforcausallm" in t and "import" in t and "could not import" in t:
+        return True
+    return False
+
+
+def _print_torchvision_mismatch_help() -> None:
+    print(
+        "[inference_agent] The Transformers + Llama stack failed while importing a "
+        "torchvision C++ op (or a broken torch/torchvision pair). This is an environment issue, not Rumour-Mill code."
+    )
+    print("  Try (one of):")
+    print("    • pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cpu")
+    print("    • pip uninstall torchvision   # OK for this text-only demo; then rerun")
+    print("    • Use Python 3.11/3.12 venv; PyTorch on 3.14 is often incomplete")
+    print("  Or set RUMOUR_DEMO=1 to run the scripted agent without loading weights.")
+
+
 def _load_model():
     global _model, _tokenizer, _device
     if _model is not None:
@@ -276,6 +326,7 @@ def _load_model():
 
     try:
         import torch
+        from contextlib import nullcontext
         from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
         from safetensors.torch import load_file
     except ImportError as e:
@@ -290,80 +341,108 @@ def _load_model():
         print(f"[inference_agent] GPU detected: {gpu_name} ({gpu_mem:.1f} GB)")
     else:
         print(f"[inference_agent] No GPU -- loading on CPU (slow but works)...")
+        if _MODEL_MODE == "full":
+            print(
+                "[inference_agent] Note: an ~8B model on CPU can take 10+ min to load and is slow. "
+                "Set RUMOUR_DEMO=1 to use the scripted agent only, or install CUDA PyTorch + GPU."
+            )
 
-    tok_kw = dict(trust_remote_code=True)
-    try:
-        _tokenizer = AutoTokenizer.from_pretrained(str(MODEL_PATH), fix_mistral_regex=True, **tok_kw)
-    except TypeError:
-        _tokenizer = AutoTokenizer.from_pretrained(str(MODEL_PATH), **tok_kw)
-    if _tokenizer.pad_token is None:
-        _tokenizer.pad_token = _tokenizer.eos_token
+    wctx = nullcontext() if _LOAD_WARN else warnings.catch_warnings()
+    with wctx:
+        if not _LOAD_WARN:
+            warnings.simplefilter("ignore")
+            for pat in (
+                r".*[Ff]ailed to find CUDA.*",
+                r".*incorrect regex pattern.*",
+                r".*fix_mistral_regex.*",
+                r".*SwigPy.*",
+            ):
+                warnings.filterwarnings("ignore", message=pat)
 
-    if _MODEL_MODE == "full":
-        print(f"[inference_agent] Loading full model...")
-        _model = AutoModelForCausalLM.from_pretrained(
-            str(MODEL_PATH),
-            dtype=torch.float16,
-            device_map="auto" if gpu_available else "cpu",
-            trust_remote_code=True,
-        )
-    else:
-        avail_layers, (has_embed, has_norm, has_lm_head) = _find_available_layers()
-        if not avail_layers or not has_embed or not has_lm_head or not has_norm:
-            print("[inference_agent] Not enough weights for a usable truncated model.")
-            return False
+        tok_kw = dict(trust_remote_code=True)
+        try:
+            _tokenizer = AutoTokenizer.from_pretrained(
+                str(MODEL_PATH), fix_mistral_regex=True, **tok_kw
+            )
+        except TypeError:
+            _tokenizer = AutoTokenizer.from_pretrained(str(MODEL_PATH), **tok_kw)
+        if _tokenizer.pad_token is None:
+            _tokenizer.pad_token = _tokenizer.eos_token
 
-        contiguous = []
-        for layer in sorted(avail_layers):
-            if not contiguous or layer == contiguous[-1] + 1:
-                contiguous.append(layer)
+        try:
+            if _MODEL_MODE == "full":
+                print(f"[inference_agent] Loading full model...")
+                _model = AutoModelForCausalLM.from_pretrained(
+                    str(MODEL_PATH),
+                    dtype=torch.float16,
+                    device_map="auto" if gpu_available else "cpu",
+                    trust_remote_code=True,
+                )
             else:
-                break
-        num_layers = len(contiguous)
-        print(f"[inference_agent] Building truncated model with {num_layers}/{len(avail_layers)} layers "
-              f"(from available shards)...")
+                avail_layers, (has_embed, has_norm, has_lm_head) = _find_available_layers()
+                if not avail_layers or not has_embed or not has_lm_head or not has_norm:
+                    print("[inference_agent] Not enough weights for a usable truncated model.")
+                    return False
 
-        with open(MODEL_PATH / "config.json") as f:
-            base_cfg = json.load(f)
-        base_cfg["num_hidden_layers"] = num_layers
-        base_cfg["use_cache"] = True
-        config = LlamaConfig(**{k: v for k, v in base_cfg.items()
-                                if k in LlamaConfig().to_dict() or k.startswith("rope")})
+                contiguous = []
+                for layer in sorted(avail_layers):
+                    if not contiguous or layer == contiguous[-1] + 1:
+                        contiguous.append(layer)
+                    else:
+                        break
+                num_layers = len(contiguous)
+                print(
+                    f"[inference_agent] Building truncated model with {num_layers}/{len(avail_layers)} layers "
+                    f"(from available shards)..."
+                )
 
-        _model = AutoModelForCausalLM.from_config(config)
+                with open(MODEL_PATH / "config.json") as f:
+                    base_cfg = json.load(f)
+                base_cfg["num_hidden_layers"] = num_layers
+                base_cfg["use_cache"] = True
+                config = LlamaConfig(**{k: v for k, v in base_cfg.items()
+                                        if k in LlamaConfig().to_dict() or k.startswith("rope")})
 
-        index_path = MODEL_PATH / "model.safetensors.index.json"
-        with open(index_path) as f:
-            weight_map = json.load(f)["weight_map"]
-        present_shards = {
-            s for s in set(weight_map.values()) if (MODEL_PATH / s).exists()
-        }
+                _model = AutoModelForCausalLM.from_config(config)
 
-        all_weights = {}
-        for shard_name in present_shards:
-            print(f"  Loading shard: {shard_name}...")
-            shard = load_file(str(MODEL_PATH / shard_name))
-            all_weights.update(shard)
-            del shard
+                index_path = MODEL_PATH / "model.safetensors.index.json"
+                with open(index_path) as f:
+                    weight_map = json.load(f)["weight_map"]
+                present_shards = {
+                    s for s in set(weight_map.values()) if (MODEL_PATH / s).exists()
+                }
 
-        state = {}
-        state["model.embed_tokens.weight"] = all_weights["model.embed_tokens.weight"]
-        state["model.norm.weight"] = all_weights["model.norm.weight"]
-        state["lm_head.weight"] = all_weights["lm_head.weight"]
+                all_weights = {}
+                for shard_name in present_shards:
+                    print(f"  Loading shard: {shard_name}...")
+                    shard = load_file(str(MODEL_PATH / shard_name))
+                    all_weights.update(shard)
+                    del shard
 
-        for new_idx, old_idx in enumerate(contiguous):
-            old_prefix = f"model.layers.{old_idx}."
-            new_prefix = f"model.layers.{new_idx}."
-            for key, tensor in all_weights.items():
-                if key.startswith(old_prefix):
-                    state[new_prefix + key[len(old_prefix):]] = tensor
+                state = {}
+                state["model.embed_tokens.weight"] = all_weights["model.embed_tokens.weight"]
+                state["model.norm.weight"] = all_weights["model.norm.weight"]
+                state["lm_head.weight"] = all_weights["lm_head.weight"]
 
-        _model.load_state_dict(state, strict=True)
-        del all_weights, state
-        _model = _model.half()
+                for new_idx, old_idx in enumerate(contiguous):
+                    old_prefix = f"model.layers.{old_idx}."
+                    new_prefix = f"model.layers.{new_idx}."
+                    for key, tensor in all_weights.items():
+                        if key.startswith(old_prefix):
+                            state[new_prefix + key[len(old_prefix):]] = tensor
 
-        if gpu_available:
-            _model = _model.cuda()
+                _model.load_state_dict(state, strict=True)
+                del all_weights, state
+                _model = _model.half()
+
+                if gpu_available:
+                    _model = _model.cuda()
+        except Exception as e:
+            if _is_torchvision_mismatch_error(e):
+                _print_torchvision_mismatch_help()
+            else:
+                print(f"[inference_agent] Model load failed: {e!r}")
+            return False
 
     _model.config.use_cache = True
     _model.eval()
