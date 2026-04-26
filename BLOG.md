@@ -4,7 +4,7 @@
 
 That is the problem VeritaRL is built to tackle.
 
-VeritaRL is an openenv-compatible reinforcement learning environment designed to train LLM agents in truth-seeking under adversarial information. Instead of giving models direct facts, the environment places them in a short social simulation where information arrives through characters with different motives and reliability levels.**
+VeritaRL is an openenv-compatible reinforcement learning environment designed to train LLM agents in truth-seeking under adversarial information. Instead of giving models direct facts, the environment places them in a short social simulation where information arrives through characters with different motives and reliability levels.
 
 **VeritaRL** is an `openenv`-compatible RL environment that trains LLM agents on the one thing current LLMs are bad at: **holding a belief, watching it get contradicted, and deciding whether to update or resist.**
 
