@@ -19,7 +19,7 @@ pinned: false
 - Hugging Face Space (interactive demo): https://huggingface.co/spaces/RumorMill/RumorMill
 - Trained model: https://huggingface.co/RumorMill/veritarl-tinyllama
 - GitHub: https://github.com/poojas100/Rumour-Mill
-- Training notebook (Colab, GRPO + Unsloth + TinyLlama 1.1B): https://colab.research.google.com/drive/1mzH4PtISRYeSBsLkFW_VAt3R8WfTek54?usp=sharing
+- Training notebook (Colab, GRPO + Unsloth + TinyLlama 1.1B): https://colab.research.google.com/drive/1n3vF5YYhbj7Ma3plJtYLlVOXDe6IWdQs?usp=sharing
 - Mini-blog: see [`BLOG.md`](BLOG.md) in this repo
 
 ---

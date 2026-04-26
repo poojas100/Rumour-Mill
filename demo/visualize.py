@@ -818,7 +818,7 @@ for col, label in zip(nav_cols, HEADER_SECTIONS):
             label,
             key=f"header_nav_{label.lower().replace(' ', '_')}",
             type="primary" if st.session_state.header_section == label else "secondary",
-            width="stretch",
+            use_container_width=True,
         ):
             st.session_state.header_section = label
 
@@ -841,7 +841,7 @@ st.markdown(
     <div class='stats-grid'>
         <div class='stat-card'>
             <div class='stat-label'>Theme</div>
-            <div class='stat-value'>Fleet AI</div>
+            <div class='stat-value'>Multi-Agent Theory of Mind, Long Horizon Planning</div>
         </div>
         <div class='stat-card'>
             <div class='stat-label'>Sub-agents</div>
@@ -903,7 +903,7 @@ if current_section == "Overview":
         overview_rand, overview_base, overview_heur, overview_grpo = get_overview_policy_samples()
         st.pyplot(
             build_policy_chart(overview_rand, overview_base, overview_heur, overview_grpo),
-            width="stretch",
+            use_container_width=True,
         )
 
     st.markdown("---")
@@ -972,9 +972,7 @@ if current_section == "Overview":
             unsafe_allow_html=True,
         )
 
-# ──────────────────────────────────────────────────────────────
 # LIVE COMPARISON
-# ──────────────────────────────────────────────────────────────
 elif current_section == "Live Comparison":
     st.subheader("Live Episode: Four Agents, Same Scenario")
     st.caption(
@@ -1000,7 +998,7 @@ elif current_section == "Live Comparison":
             speed = st.select_slider("Speed", options=["Slow", "Normal", "Fast"], value="Normal")
         delay = {"Slow":0.5, "Normal":0.2, "Fast":0.02}[speed]
 
-        if st.button("Run Episode", type="primary", width='stretch'):
+        if st.button("Run Episode", type="primary", use_container_width=True):
 
             with st.spinner("Running four agents..."):
                 rand_log, rand_total, gt = run_episode(random_agent,   int(seed), difficulty)
@@ -1130,9 +1128,7 @@ elif current_section == "Live Comparison":
                 for step in strategies.get(event, ["Gather signals before acting"]):
                     st.markdown(f"- {step}")
 
-# ──────────────────────────────────────────────────────────────
 # TRAINING DETAILS
-# ──────────────────────────────────────────────────────────────
 elif current_section == "Training Details":
     train_overview, train_evidence, train_before = st.tabs(
         ["Bulk Analysis", "Training Evidence", "Before vs After"]
@@ -1147,7 +1143,7 @@ elif current_section == "Training Details":
         else:
             n_eps = st.slider("Episodes to run", 10, 100, 30, step=10)
 
-            if st.button("Run Bulk Analysis", type="primary", width='stretch'):
+            if st.button("Run Bulk Analysis", type="primary", use_container_width=True):
                 progress = st.progress(0, text="Running episodes...")
                 rand_b, base_b, heur_b, grpo_b = [], [], [], []
 
@@ -1187,7 +1183,7 @@ elif current_section == "Training Details":
                     )
 
                 st.markdown("<br>", unsafe_allow_html=True)
-                st.pyplot(build_policy_chart(rand_b, base_b, heur_b, grpo_b), width='stretch')
+                st.pyplot(build_policy_chart(rand_b, base_b, heur_b, grpo_b), use_container_width=True)
 
                 st.session_state.update(
                     {
@@ -1212,7 +1208,7 @@ elif current_section == "Training Details":
                         st.session_state["heur_bulk"],
                         st.session_state.get("grpo_bulk"),
                     ),
-                    width='stretch',
+                    use_container_width=True,
                 )
                 st.caption("From previous bulk run. Click above to refresh.")
 
@@ -1268,7 +1264,7 @@ elif current_section == "Training Details":
             ax.legend(fontsize=8, facecolor="#1a1a2e", labelcolor="#ddd")
             ax.grid(alpha=0.1, color="#444")
             fig.tight_layout()
-            st.pyplot(fig, width='stretch')
+            st.pyplot(fig, use_container_width=True)
             st.caption("Simulated curve. Commit `assets/reward_curve.png` to show real results.")
 
         st.markdown("---")
@@ -1322,7 +1318,7 @@ def calculate_reward(action_type, target, decision,
             """
 The full training pipeline is open:
 [HuggingFace Model](https://huggingface.co/RumorMill/veritarl-tinyllama) |
-[Training Notebook](https://colab.research.google.com/drive/1mzH4PtISRYeSBsLkFW_VAt3R8WfTek54?usp=sharing) |
+[Training Notebook](https://colab.research.google.com/drive/1n3vF5YYhbj7Ma3plJtYLlVOXDe6IWdQs?usp=sharing) |
 [GitHub](https://github.com/poojas100/Rumour-Mill)
 """
         )
@@ -1352,7 +1348,7 @@ The full training pipeline is open:
                 language="text",
             )
             st.error("No structured ACTION. Acts on the loudest, least reliable source.")
-            st.pyplot(build_reward_breakdown(0.0, 0.0, 0.75, 0.3), width='stretch')
+            st.pyplot(build_reward_breakdown(0.0, 0.0, 0.75, 0.3), use_container_width=True)
             st.metric("Reward", "+0.35", delta="baseline")
 
         with col2:
@@ -1375,12 +1371,10 @@ The full training pipeline is open:
                 language="text",
             )
             st.success("Structured. Demands verification. Respects the format.")
-            st.pyplot(build_reward_breakdown(1.0, 1.0, 0.90, 1.0), width='stretch')
+            st.pyplot(build_reward_breakdown(1.0, 1.0, 0.90, 1.0), use_container_width=True)
             st.metric("Reward", "+0.95", delta="+0.60")
 
-# ──────────────────────────────────────────────────────────────
 # DEEP DIVE
-# ──────────────────────────────────────────────────────────────
 elif current_section == "Deep Dive":
     st.subheader("The Problem We're Solving")
 
@@ -1470,6 +1464,6 @@ Reward is computed by 5 independent functions, normalized to [-1, +1]:
 | HuggingFace Space | https://huggingface.co/spaces/RumorMill/RumorMill |
 | Trained Model | https://huggingface.co/RumorMill/veritarl-tinyllama |
 | GitHub | https://github.com/poojas100/Rumour-Mill |
-| Training Notebook | https://colab.research.google.com/drive/1mzH4PtISRYeSBsLkFW_VAt3R8WfTek54?usp=sharing |
+| Training Notebook | https://colab.research.google.com/drive/1n3vF5YYhbj7Ma3plJtYLlVOXDe6IWdQs?usp=sharing |
 | Mini Blog | https://huggingface.co/spaces/RumorMill/RumorMill/blob/main/BLOG.md |
 """)
