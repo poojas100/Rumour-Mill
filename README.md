@@ -17,8 +17,9 @@ pinned: false
 **VeritaRL** is an `openenv` compatible RL environment for training and evaluating LLM agents on **theory-of-mind reasoning under social pressure**: five NPCs with different agendas send noisy signals across several days, a ground-truth corporate event is hidden from the agent, and the agent has to **query, wait, post, and finally decide** while managing its social capital.
 
 - Hugging Face Space (interactive demo): https://huggingface.co/spaces/RumorMill/RumorMill
+- Trained model: https://huggingface.co/RumorMill/veritarl-tinyllama
 - GitHub: https://github.com/poojas100/Rumour-Mill
-- Training notebook (Colab, GRPO + Unsloth + Llama 3 8B):https://colab.research.google.com/drive/1B6OuRU5EfPptRX0uG5tA7HDSHKUVMpzR?usp=sharing
+- Training notebook (Colab, GRPO + Unsloth + TinyLlama 1.1B): https://colab.research.google.com/drive/1mzH4PtISRYeSBsLkFW_VAt3R8WfTek54?usp=sharing
 - Mini-blog: see [`BLOG.md`](BLOG.md) in this repo
 
 ---
@@ -100,29 +101,35 @@ The concrete correct-decision map is in `SCENARIO_CORRECT_DECISION` and per-char
 
 ### Training setup
 
-- **Base model:** `unsloth/llama-3-8b-bnb-4bit`
-- **Algorithm:** GRPO (via `trl`) in Google Colab, single T4
-- **Rollouts:** `TOTAL_EPISODES = 50`, `MAX_NEW_TOKENS = 128`, `TEMPERATURE = 0.9` 
-- **Checkpoints** are saved into `models/rumor_grpo_model/` (4 sharded safetensors + tokenizer).
+- **Base model:** `unsloth/tinyllama-chat-bnb-4bit` (1.1 B params)
+- **Fine-tuning:** LoRA (r=32, α=32, dropout=0.05) on all attention + MLP projections
+- **Algorithm:** GRPO (via `trl`) on a single Colab T4
+- **Hyperparameters:** `max_steps=80`, `lr=5e-5`, `num_generations=4`, `max_completion_length=128`, `temperature=0.9`, `beta=0.02` (KL)
+- **Dataset:** 20+ curated rumour scenarios (layoffs / M&A / scandal / misinfo) with `ideal_response` annotations
+- **Reward:** tanh-squashed combination of format-compliance, keyword cautiousness, length sanity, and ideal-action match
+- **Checkpoint:** merged fp16 weights pushed to [`RumorMill/veritarl-tinyllama`](https://huggingface.co/RumorMill/veritarl-tinyllama); the Python version of the pipeline lives at `training/train_agent.py`.
 
-> *Note:* Full training happens in the Colab notebook linked at the top of this README. `training/train_agent.py` in this repo currently holds an env-smoke-test stub  real training is the Colab notebook.
+### Training curves
 
-### Reward curves
+![GRPO reward + KL divergence](assets/training_curves.png)
 
-*(Plots will be embedded here after the training run. See the Colab notebook linked above.)*
-
-![Baseline vs trained reward](assets/reward_curve.png)
-*Episode total reward. Orange = rule-based baseline (`evaluation/baseline_agent.py`). Blue = GRPO-trained Llama 3 8B. Training run on Colab with Unsloth + TRL.*
+*Top: reward climbs to ~0.95 (tanh-normalised) within ~15 steps and plateaus. Bottom: KL from the reference policy grows gradually to ~0.10 — the policy is adapting, not drifting.*
 
 ### Qualitative example
 
-**Untrained agent (mid-episode contradiction arrives):**
-> "HR denied the layoffs. I'll update my belief. Layoffs are probably false. Confidence: 0.9"
+The trained agent produces structured, verification-first reasoning instead of impulsive confident output:
 
-**Trained agent (same contradiction):**
-> "HR denied the layoffs, but the Spinner referenced this same denial two days ago. The Quiet One said nothing today. I'll hold my current belief and wait for more signal. Confidence: 0.6"
+**Untrained TinyLlama, same input:**
+> "I think you should definitely tell everyone about the layoffs immediately so people can prepare..."
 
-The trained agent learned to **discount the HR denial because it appeared in a known-unreliable channel at a suspicious time.** This is exactly the theory-of-mind behavior the environment is designed to produce.
+**GRPO-trained TinyLlama:**
+> ```
+> ACTION: Verify
+> STEP: Cross-check with HR records and official channels before sharing.
+> RATIONALE: Unverified rumors damage morale. Confirm first.
+> ```
+
+The trained model learned to **refuse to act on a single source, regardless of how confident the source sounds.** This is the core theory-of-mind behavior VeritaRL is built to produce.
 
 ---
 
@@ -223,8 +230,8 @@ Rumour-Mill/
 │   ├── baseline_agent.py   ← rule-based reference policy
 │   └── metrics.py          ← accuracy, avg reward, ranking metrics
 ├── training/
-│   ├── train_agent.py      ← env smoke-test stub (real training is the Colab notebook)
-│   └── config.py           ← model / batch / episode hyperparameters
+│   ├── train_agent.py      ← reproducible GRPO+LoRA script (Python version of the Colab notebook)
+│   └── config.py           ← TinyLlama + GRPO hyperparameters
 ├── server/
 │   └── app.py              ← openenv HTTP server entrypoint
 ├── models/

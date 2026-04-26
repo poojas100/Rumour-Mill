@@ -8,9 +8,10 @@ VeritaRL is an openenv-compatible reinforcement learning environment designed to
 
 **VeritaRL** is an `openenv`-compatible RL environment that trains LLM agents on the one thing current LLMs are bad at: **holding a belief, watching it get contradicted, and deciding whether to update or resist.**
 
-- Live demo (HF Space): https://huggingface.co/spaces/RumorMill/Rumor
+- Live demo (HF Space): https://huggingface.co/spaces/RumorMill/RumorMill
+- Trained model: https://huggingface.co/RumorMill/veritarl-tinyllama
 - Code: https://github.com/poojas100/Rumour-Mill
-- Training notebook (GRPO + Unsloth + Llama 3 8B): https://colab.research.google.com/drive/1B6OuRU5EfPptRX0uG5tA7HDSHKUVMpzR?authuser=2#scrollTo=of-uzsCrjrmy
+- Training notebook (GRPO + Unsloth + TinyLlama 1.1B): https://colab.research.google.com/drive/1mzH4PtISRYeSBsLkFW_VAt3R8WfTek54?usp=sharing
 
 ---
 
@@ -42,30 +43,63 @@ RumorAction(
 
 Repeating the same action 3 times in a row hard-terminates with `-10`. Talking to low-reliability NPCs drags reward down. Final reward scales with **correct decision × timing × social capital × who you trusted**.
 
+## The pipeline
+
+At a glance, here is how a rumour becomes a decision — and how training closes the loop:
+
+```mermaid
+flowchart TD
+    A[Rumour signals<br/>5 NPCs + Reddit posts] --> B[Zephyr chat prompt<br/>system + user turn]
+    B --> C[TinyLlama 1.1B<br/>LoRA + GRPO]
+    C --> D[Structured output<br/>ACTION / STEP / RATIONALE]
+    D --> E{Which ACTION?}
+    E -->|Verify / Gather| F[DM the next<br/>uncorroborated source]
+    E -->|Wait| G[Observe only]
+    E -->|Dismiss| H[Decision: ignore]
+    E -->|Confirm| I[Decision based on<br/>accumulated signals]
+    F --> J[Environment step]
+    G --> J
+    H --> J
+    I --> J
+    J -->|reward| K[Reward function<br/>format + keyword + ideal match<br/>tanh-squashed to -1, +1]
+    K -. training loop .-> L[GRPO policy update]
+    L -. updates weights .-> C
+
+    style C fill:#d6b46c,stroke:#161616,color:#000
+    style K fill:#2ecc71,stroke:#161616,color:#000
+    style L fill:#3498db,stroke:#161616,color:#fff
+```
+
+The dashed path only runs during training. At inference time the loop stops at the environment step — which is exactly what the Hugging Face Space does every time a judge clicks *Run Episode*.
+
 ## What we trained
 
-- Base: `unsloth/llama-3-8b-bnb-4bit`
-- Algorithm: **GRPO** via `trl`, on a Colab T4
-- 30 episodes, `max_new_tokens=128`, `temperature=0.9`
-- Checkpoint: sharded safetensors in `models/rumor_grpo_model/`
+- Base: `unsloth/tinyllama-chat-bnb-4bit` (1.1 B params)
+- LoRA: r=32, α=32, on all attention + MLP projections
+- Algorithm: **GRPO** via `trl`, Colab T4, 80 steps
+- Prompt format: Zephyr-style chat template, structured `ACTION / STEP / RATIONALE` output
+- Reward: tanh-squashed mix of format compliance, keyword cautiousness, length sanity, and ideal-action match
+- Dataset: 20+ curated rumour scenarios (layoffs / M&A / scandal / viral misinformation)
+- Checkpoint: merged fp16 weights on HF Hub at [`RumorMill/veritarl-tinyllama`](https://huggingface.co/RumorMill/veritarl-tinyllama)
 
 ## Results
 
-![Reward over training steps](assets/reward_curve.png)
-*Reward climbs from ~0.2 to ~0.8 over 30 GRPO steps. Dashed line = 10-step rolling average.*
+![GRPO reward curve + KL divergence](assets/training_curves.png)
+*Top: reward climbs to ~0.95 (tanh-normalised) within ~15 steps and plateaus. Bottom: KL from the reference policy grows gradually to ~0.10 — the model is adapting, not drifting.*
 
-![KL Divergence](assets/kl_divergence.png)
-*KL from the reference policy stays bounded — the model is adapting, not drifting.*
+### Qualitative: same input, two models
 
-### Qualitative: same contradiction, two agents
+**Untrained TinyLlama:**
+> "I think you should definitely tell everyone about the layoffs immediately so people can prepare…"
 
-**Untrained:**
-> "HR denied the layoffs. Layoffs are probably false. Confidence: 0.9"
+**GRPO-trained TinyLlama:**
+> ```
+> ACTION: Verify
+> STEP: Cross-check with HR records and official channels before sharing.
+> RATIONALE: Unverified rumors damage morale. Confirm first.
+> ```
 
-**Trained:**
-> "HR denied the layoffs, but the Spinner referenced this same denial two days ago. The Quiet One said nothing today. I'll hold my current belief. Confidence: 0.6"
-
-The trained agent **discounts the denial because of who delivered it and when** the theory-of-mind behavior the environment is designed to produce.
+The trained model learned to **refuse to act on a single source, regardless of how confident the source sounds** — the structured, verification-first behaviour VeritaRL's reward is designed to produce.
 
 ## Why this generalizes
 

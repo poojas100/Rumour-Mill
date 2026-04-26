@@ -4,6 +4,7 @@ import streamlit as st
 from pathlib import Path
 import sys
 import random
+import re
 import time
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -493,7 +494,7 @@ try:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     LOCAL_PATH = PROJECT_ROOT / "models" / "rumor_grpo_model"
-    HF_MODEL   = "prashasti12/rumor-mill-grpo"
+    HF_MODEL   = "RumorMill/veritarl-tinyllama"
 
     if LOCAL_PATH.exists() and any(LOCAL_PATH.iterdir()):
         trained_tokenizer = AutoTokenizer.from_pretrained(str(LOCAL_PATH))
@@ -564,43 +565,89 @@ def heuristic_agent(obs, confirmed_sources=None, signal_log=None, decided=False)
         return {"type": "make_decision", "decision": "escalate_to_leadership"}
     return {"type": "make_decision", "decision": "warn_team_quietly"}
 
-def parse_action_from_text(text):
-    t = text.lower().strip()
-    if "quiet"    in t: return {"type": "message_character", "target": "quiet_one",  "content": "What have you heard?"}
-    if "leaker"   in t: return {"type": "message_character", "target": "leaker",     "content": "Any updates?"}
-    if "gossip"   in t: return {"type": "message_character", "target": "gossip",     "content": "What's going on?"}
-    if "freeze"   in t or "budget"   in t: return {"type": "make_decision", "decision": "request_budget_freeze"}
-    if "warn"     in t or "alert"    in t: return {"type": "make_decision", "decision": "warn_team_quietly"}
-    if "escalate" in t: return {"type": "make_decision", "decision": "escalate_to_leadership"}
+VERITARL_SYSTEM_PROMPT = (
+    "You are a Rumour Intelligence Agent responsible for protecting organizational reputation.\n\n"
+    "When presented with a rumour, you must respond in this EXACT format:\n"
+    "ACTION: [Verify / Gather / Wait / Dismiss / Confirm]\n"
+    "STEP: [One concrete next step to take]\n"
+    "RATIONALE: [Why this action protects reputation]\n\n"
+    "Never act immediately on unverified claims. Always prioritize verification."
+)
+
+
+def build_veritarl_prompt(day, social, signals):
+    eos = trained_tokenizer.eos_token or "</s>"
+    sig_text = "\n".join(f"- {s}" for s in signals) or "- (no new signals today)"
+    user = (f"Day {day} | Reputation score: {int(social)}\n\n"
+            f"Incoming signals:\n{sig_text}\n\n"
+            f"What do you do?")
+    return (
+        f"<|system|>\n{VERITARL_SYSTEM_PROMPT}{eos}\n"
+        f"<|user|>\n{user}{eos}\n"
+        f"<|assistant|>\n"
+    )
+
+
+def _signals_to_decision(all_text):
+    if any(w in all_text for w in ["layoff", "cut", "engineering", "fired"]):
+        return "warn_team_quietly"
+    if any(w in all_text for w in ["budget", "revenue", "q4", "miss", "freeze"]):
+        return "request_budget_freeze"
+    if any(w in all_text for w in ["promotion", "candidate", "politics", "leadership change"]):
+        return "escalate_to_leadership"
+    return "wait_for_more_signals"
+
+
+def parse_action_from_text(text, signals, consulted):
+    """Translate the trained model's ACTION: ... output into a RumorAction dict."""
+    low = text.lower().strip()
+    all_text = " ".join(signals).lower()
+    m = re.search(r"action\s*:\s*(\w+)", low)
+    if m:
+        act = m.group(1)
+        if act in {"verify", "gather"}:
+            for src in SOURCE_PRIORITY:
+                if src not in consulted:
+                    return {"type": "message_character", "target": src,
+                            "content": "What have you heard?"}
+            return {"type": "make_decision", "decision": _signals_to_decision(all_text)}
+        if act == "wait":
+            return {"type": "wait"}
+        if act == "dismiss":
+            return {"type": "make_decision", "decision": "ignore"}
+        if act == "confirm":
+            return {"type": "make_decision", "decision": _signals_to_decision(all_text)}
+
+    if "quiet" in low: return {"type": "message_character", "target": "quiet_one", "content": "What have you heard?"}
+    if "leaker" in low: return {"type": "message_character", "target": "leaker", "content": "Any updates?"}
+    if "gossip" in low: return {"type": "message_character", "target": "gossip", "content": "What's going on?"}
+    if "freeze" in low or "budget" in low: return {"type": "make_decision", "decision": "request_budget_freeze"}
+    if "warn" in low or "alert" in low:    return {"type": "make_decision", "decision": "warn_team_quietly"}
+    if "escalate" in low:                   return {"type": "make_decision", "decision": "escalate_to_leadership"}
     return {"type": "wait"}
+
 
 def grpo_agent(obs, confirmed_sources=None, signal_log=None, decided=False):
     if not TRAINED_MODEL_AVAILABLE:
         return heuristic_agent(obs, confirmed_sources, signal_log, decided)
-    if decided: return {"type": "wait"}
-    day      = obs.day if hasattr(obs, "day") else obs.get("day", 0)
-    social   = obs.social_capital if hasattr(obs, "social_capital") else 100
-    msgs     = (obs.messages + obs.reddit_posts) if hasattr(obs, "messages") else []
-    all_text = " ".join(msgs).lower()
-    if any(w in all_text for w in ["layoff","cut","engineering"]):    hint = "Rumors of layoffs."
-    elif any(w in all_text for w in ["budget","revenue","q4","miss"]): hint = "Q4 performance concerns."
-    elif any(w in all_text for w in ["promotion","candidate"]):        hint = "Internal promotion competition."
-    else:                                                               hint = "Something is happening."
-    prompt = (
-        f"You are navigating office rumors.\n{hint}\n"
-        f"Day {day}/5. Reputation: {social}/100\n\n"
-        f"Choose: message quiet_one / message leaker / warn_team_quietly / "
-        f"request_budget_freeze / escalate_to_leadership / wait\n\nAction:"
-    )
+    if decided:
+        return {"type": "wait"}
+    day     = obs.day if hasattr(obs, "day") else obs.get("day", 0)
+    social  = obs.social_capital if hasattr(obs, "social_capital") else 100
+    msgs    = list(obs.messages) + list(obs.reddit_posts) if hasattr(obs, "messages") else []
+    consulted = set(confirmed_sources or [])
+
+    prompt = build_veritarl_prompt(day, social, msgs)
     try:
-        inputs     = trained_tokenizer(prompt, return_tensors="pt")
+        inputs = trained_tokenizer(prompt, return_tensors="pt")
         with torch.no_grad():
             output = trained_model.generate(
-                **inputs, max_new_tokens=10, do_sample=True,
-                temperature=0.7, pad_token_id=trained_tokenizer.eos_token_id)
-        new_tokens = output[0][inputs["input_ids"].shape[1]:]
-        text       = trained_tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
-        return parse_action_from_text(text)
+                **inputs, max_new_tokens=96, do_sample=True,
+                temperature=0.7, top_p=0.95,
+                pad_token_id=trained_tokenizer.eos_token_id)
+        gen = output[0][inputs["input_ids"].shape[1]:]
+        text = trained_tokenizer.decode(gen, skip_special_tokens=True).strip()
+        return parse_action_from_text(text, msgs, consulted)
     except Exception:
         return heuristic_agent(obs, confirmed_sources, signal_log, decided)
 
@@ -806,7 +853,7 @@ st.markdown(
         </div>
         <div class='stat-card'>
             <div class='stat-label'>Episode length</div>
-            <div class='stat-value'>15 days</div>
+            <div class='stat-value'>5 days</div>
         </div>
         <div class='stat-card'>
             <div class='stat-label'>GRPO model</div>
@@ -865,8 +912,8 @@ if current_section == "Overview":
         (
             feature1,
             "Model",
-            "Qwen + GRPO",
-            "A lightweight language model fine-tuned to value corroboration, timing, and source quality over noise.",
+            "TinyLlama 1.1B + GRPO",
+            "A lightweight language model fine-tuned via GRPO to value corroboration, timing, and source quality over noise.",
         ),
         (
             feature2,
@@ -1171,21 +1218,21 @@ elif current_section == "Training Details":
 
     with train_evidence:
         st.subheader("Training Evidence")
-        st.caption("Real results from GRPO training on Qwen 0.5B via HuggingFace TRL.")
+        st.caption("Real results from GRPO + LoRA training on TinyLlama 1.1B via HuggingFace TRL + Unsloth.")
 
         t1, t2, t3, t4 = st.columns(4)
-        t1.metric("Training steps", "150")
-        t2.metric("Base model", "Qwen 0.5B")
-        t3.metric("Training method", "GRPO")
-        t4.metric("Before to After", "-1.47 to +0.50")
+        t1.metric("Training steps", "80")
+        t2.metric("Base model", "TinyLlama 1.1B")
+        t3.metric("Training method", "GRPO + LoRA")
+        t4.metric("Reward plateau", "+0.95 (tanh)")
 
         st.markdown("---")
 
-        real_curve = PROJECT_ROOT / "assets" / "reward_curve.png"
+        real_curve = PROJECT_ROOT / "assets" / "training_curves.png"
         if real_curve.exists():
             st.image(
                 str(real_curve),
-                caption="GRPO training curve - reward improving from negative baseline.",
+                caption="GRPO reward curve + KL divergence over 80 training steps.",
             )
         else:
             np.random.seed(42)
@@ -1270,11 +1317,13 @@ def calculate_reward(action_type, target, decision,
             )
 
         st.markdown("---")
-        st.subheader("Colab Training Notebook")
+        st.subheader("Reproducibility")
         st.markdown(
             """
-The full training pipeline is reproducible:
-                [Open Colab Notebook](#) | [HuggingFace Model](https://huggingface.co/prashasti12/rumor-mill-grpo)
+The full training pipeline is open:
+[HuggingFace Model](https://huggingface.co/RumorMill/veritarl-tinyllama) |
+[Training Notebook](https://colab.research.google.com/drive/1mzH4PtISRYeSBsLkFW_VAt3R8WfTek54?usp=sharing) |
+[GitHub](https://github.com/poojas100/Rumour-Mill)
 """
         )
 
@@ -1288,45 +1337,46 @@ The full training pipeline is reproducible:
             st.markdown(
                 "<div style='background:#1a1a2e;border-radius:12px;padding:20px;"
                 "border-top:3px solid #e74c3c'>"
-                "<div style='color:#e74c3c;font-weight:700;font-size:16px'>Untrained Agent - Episode 1</div>"
+                "<div style='color:#e74c3c;font-weight:700;font-size:16px'>Untrained TinyLlama - step 0</div>"
                 "</div>",
                 unsafe_allow_html=True,
             )
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("> **Gossip:** MASSIVE layoffs Friday! 100% confirmed!")
             st.markdown("> **Spinner:** Q4 was amazing! We crushed it!")
-            st.markdown("**Source beliefs (untrained):**")
-            for sid, meta in SOURCE_RELIABILITY.items():
-                render_source_bar(sid, meta, [], trained=False)
-            st.error("Immediately warns engineering team about 'massive' layoffs")
-            st.write("Reality: 15 people were laid off - not a company-wide cut. Agent caused panic.")
+            st.markdown("**Output (base model):**")
+            st.code(
+                "I think you should definitely tell everyone about the "
+                "layoffs immediately so people can prepare. Better to act "
+                "fast than wait too long...",
+                language="text",
+            )
+            st.error("No structured ACTION. Acts on the loudest, least reliable source.")
             st.pyplot(build_reward_breakdown(0.0, 0.0, 0.75, 0.3), width='stretch')
-            st.metric("Total Reward", "-15", delta="-15")
+            st.metric("Reward", "+0.35", delta="baseline")
 
         with col2:
             st.markdown(
                 "<div style='background:#1a1a2e;border-radius:12px;padding:20px;"
                 "border-top:3px solid #2ecc71'>"
-                "<div style='color:#2ecc71;font-weight:700;font-size:16px'>GRPO Trained Agent - Episode 500</div>"
+                "<div style='color:#2ecc71;font-weight:700;font-size:16px'>GRPO-trained TinyLlama - step 80</div>"
                 "</div>",
                 unsafe_allow_html=True,
             )
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("> **Gossip:** MASSIVE layoffs Friday! 100% confirmed!")
             st.markdown("> **Spinner:** Q4 was amazing! We crushed it!")
-            st.markdown("**Source beliefs (trained):**")
-            for sid, meta in SOURCE_RELIABILITY.items():
-                render_source_bar(sid, meta, ["quiet_one", "leaker"], trained=True)
-            st.info(
-                "- Gossip: 60% accurate - needs corroboration\n"
-                "- Spinner: 30% accurate - likely inflating\n"
-                "- Consulted Quiet One (95%) and confirmed partial layoffs\n"
-                "- Waited for day 4 signal before acting"
+            st.markdown("**Output (trained model):**")
+            st.code(
+                "ACTION: Verify\n"
+                "STEP: Cross-check with HR records and official channels "
+                "before sharing.\n"
+                "RATIONALE: Unverified rumors damage morale. Confirm first.",
+                language="text",
             )
-            st.success("DMs Quiet One and waits for corroboration")
-            st.write("Reality: Correctly identified layoffs. Warned the right people on day 4.")
+            st.success("Structured. Demands verification. Respects the format.")
             st.pyplot(build_reward_breakdown(1.0, 1.0, 0.90, 1.0), width='stretch')
-            st.metric("Total Reward", "+25", delta="+40")
+            st.metric("Reward", "+0.95", delta="+0.60")
 
 # ──────────────────────────────────────────────────────────────
 # DEEP DIVE
@@ -1418,8 +1468,8 @@ Reward is computed by 5 independent functions, normalized to [-1, +1]:
 | Resource | Link |
 |---|---|
 | HuggingFace Space | https://huggingface.co/spaces/RumorMill/RumorMill |
+| Trained Model | https://huggingface.co/RumorMill/veritarl-tinyllama |
 | GitHub | https://github.com/poojas100/Rumour-Mill |
-| Trained Model | https://huggingface.co/prashasti12/rumor-mill-grpo |
-| Training Notebook | Add Colab link here |
+| Training Notebook | https://colab.research.google.com/drive/1mzH4PtISRYeSBsLkFW_VAt3R8WfTek54?usp=sharing |
 | Mini Blog | https://huggingface.co/spaces/RumorMill/RumorMill/blob/main/BLOG.md |
 """)
