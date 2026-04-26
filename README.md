@@ -12,14 +12,14 @@ pinned: false
 
 # VeritaRL
 
-> *Can an LLM figure out what's really happening inside a company — when everyone it talks to has a hidden agenda?*
+> *Can an LLM figure out what's really happening inside a company  when everyone it talks to has a hidden agenda?*
 
 **VeritaRL** is an `openenv` compatible RL environment for training and evaluating LLM agents on **theory-of-mind reasoning under social pressure**: five NPCs with different agendas send noisy signals across several days, a ground-truth corporate event is hidden from the agent, and the agent has to **query, wait, post, and finally decide** while managing its social capital.
 
-- Hugging Face Space (interactive demo): https://huggingface.co/spaces/RumorMill/Rumor
+- Hugging Face Space (interactive demo): https://huggingface.co/spaces/RumorMill/RumorMill
 - GitHub: https://github.com/poojas100/Rumour-Mill
-- Training notebook (Colab, GRPO + Unsloth + Llama 3 8B)[: *(link to be added)*](https://colab.research.google.com/drive/1B6OuRU5EfPptRX0uG5tA7HDSHKUVMpzR?usp=sharing)
-- Mini-blog: see [`BLOG.md`](BLOG.md) in this repo, and 
+- Training notebook (Colab, GRPO + Unsloth + Llama 3 8B):https://colab.research.google.com/drive/1B6OuRU5EfPptRX0uG5tA7HDSHKUVMpzR?usp=sharing
+- Mini-blog: see [`BLOG.md`](BLOG.md) in this repo
 
 ---
 
@@ -27,7 +27,7 @@ pinned: false
 
 LLMs are surprisingly bad at one specific thing: **holding a belief, watching it get contradicted, and deciding whether to update or resist.** This is not a knowledge problem. It is a reasoning-under-social-pressure problem.
 
-In the real world and especially in professional environmentsinformation arrives through people, not databases. Those people spin, gossip, leak selectively, and lie strategically. An agent that takes every message at face value will be manipulated. An agent that trusts no one will never act.
+In the real world and especially in professional environments information arrives through people, not databases. Those people spin, gossip, leak selectively, and lie strategically. An agent that takes every message at face value will be manipulated. An agent that trusts no one will never act.
 
 VeritaRL is a training environment designed to close this gap. It forces an LLM agent to practice **theory-of-mind reasoning in a professionally adversarial setting**: reading between the lines, tracking who said what across an episode, and detecting when new information contradicts old information on purpose.
 
@@ -83,7 +83,7 @@ RumorObservation(
 )
 ```
 
-Each episode runs for **`max_days = 5`** by default (configurable in `RumorMillEnv.__init__`). The environment **auto-adjusts difficulty** across episodes based on the rolling reward window — see `RumorMillEnv.reset`.
+Each episode runs for **`max_days = 5`** by default (configurable in `RumorMillEnv.__init__`). The environment **auto-adjusts difficulty** across episodes based on the rolling reward window  see `RumorMillEnv.reset`.
 
 ### What the agent is rewarded for
 
@@ -102,10 +102,10 @@ The concrete correct-decision map is in `SCENARIO_CORRECT_DECISION` and per-char
 
 - **Base model:** `unsloth/llama-3-8b-bnb-4bit`
 - **Algorithm:** GRPO (via `trl`) in Google Colab, single T4
-- **Rollouts:** `TOTAL_EPISODES = 200`, `MAX_NEW_TOKENS = 64`, `TEMPERATURE = 0.9` (see `training/config.py`)
+- **Rollouts:** `TOTAL_EPISODES = 50`, `MAX_NEW_TOKENS = 128`, `TEMPERATURE = 0.9` 
 - **Checkpoints** are saved into `models/rumor_grpo_model/` (4 sharded safetensors + tokenizer).
 
-> *Note:* Full training happens in the Colab notebook linked at the top of this README. `training/train_agent.py` in this repo currently holds an env-smoke-test stub — real training is the Colab notebook.
+> *Note:* Full training happens in the Colab notebook linked at the top of this README. `training/train_agent.py` in this repo currently holds an env-smoke-test stub  real training is the Colab notebook.
 
 ### Reward curves
 
@@ -130,7 +130,7 @@ The trained agent learned to **discount the HR denial because it appeared in a k
 
 Every professional domain runs on social information: M&A rumors, performance review leaks, strategic misdirection in negotiations, market sentiment manipulation. An LLM agent deployed in any of these contexts will face exactly the adversarial social dynamics this environment trains.
 
-Beyond the professional domain, the core skill — **tracking belief state over long episodes when signals contradict each other** — is a fundamental gap in current LLM reasoning. Training on VeritaRL produces agents that are better at:
+Beyond the professional domain, the core skill  **tracking belief state over long episodes when signals contradict each other**  is a fundamental gap in current LLM reasoning. Training on VeritaRL produces agents that are better at:
 
 - Holding partial beliefs without premature commitment
 - Detecting when new information is too convenient
@@ -152,7 +152,20 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` installs the environment + Streamlit UI. **LLM inference** deps (`torch`, `transformers`, `accelerate`, `safetensors`) are in the same file but only needed if you plan to load the GRPO checkpoint locally. Use **CPU** or **CUDA** PyTorch wheels that **match each other** — a mismatched `torch` / `torchvision` pair is the most common install error on Windows.
+`requirements.txt` installs the environment + Streamlit UI. **LLM inference** deps (`torch`, `transformers`, `accelerate`, `safetensors`) are in the same file but only needed if you plan to load the GRPO checkpoint locally. Use **CPU** or **CUDA** PyTorch wheels that **match each other**  a mismatched `torch` / `torchvision` pair is the most common install error on Windows.
+
+### Optional: Ollama for richer NPC dialogue
+
+Quiet One, Politician, and Leaker can call a local Ollama model for more varied messages. Skip this and the env quietly uses templates.
+
+```bash
+# 1. Install Ollama: https://ollama.com/download
+ollama pull llama3       # pull the model the NPCs expect
+ollama serve             # usually auto-started by the installer
+pip install ollama       # already in requirements.txt
+```
+
+Verify with `ollama list`. To disable, stop the server or `pip uninstall ollama`.
 
 ### Demo modes
 

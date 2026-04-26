@@ -5,14 +5,14 @@ pydantic>=2.8.2
 streamlit>=1.38.0
 openai>=1.0.0          
 uvicorn>=0.29.0       
-
 # -- Optional: local LLM inference (loading the GRPO checkpoint) --
-# Remove these if you only want to run the environment or the scripted agent
 # (set RUMOUR_DEMO=1 to skip loading weights entirely).
-# IMPORTANT: install a torch build that matches your platform. On Windows/CPU:
 #   pip install --upgrade torch --index-url https://download.pytorch.org/whl/cpu
 # For NVIDIA GPUs use the appropriate CUDA index from https://pytorch.org.
 torch>=2.2
 transformers>=4.44
 accelerate>=0.33
 safetensors>=0.4
+
+# Optional: richer NPC dialogue (needs a running Ollama server + `ollama pull llama3`)
+ollama>=0.3.0
