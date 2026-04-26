@@ -1421,5 +1421,5 @@ Reward is computed by 5 independent functions, normalized to [-1, +1]:
 | GitHub | https://github.com/poojas100/Rumour-Mill |
 | Trained Model | https://huggingface.co/prashasti12/rumor-mill-grpo |
 | Training Notebook | Add Colab link here |
-| Mini Blog | Add HF blog link here |
+| Mini Blog | https://huggingface.co/spaces/RumorMill/RumorMill/blob/main/BLOG.md |
 """)

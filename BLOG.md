@@ -1,7 +1,6 @@
 # VeritaRL: Teaching LLMs to Find Truth When Sources Have Agendas
 
-> *Large language models are getting better at answering questions, summarizing documents, and generating content. But many real-world decisions don’t come from clean facts — they come through people. And people have incentives.*
-**A manager may downplay risk. A competitor may spread doubt. A spokesperson may deny something strategically. A rumor may contain partial truth. In these settings, the challenge is not just understanding language — it is figuring out what to believe.
+> *Large language models are getting better at answering questions, summarizing documents, and generating content. But many real-world decisions don’t come from clean facts — they come through people. And people have incentives. A manager may downplay risk. A competitor may spread doubt. A spokesperson may deny something strategically. A rumor may contain partial truth. In these settings, the challenge is not just understanding language — it is figuring out what to believe.*
 
 That is the problem VeritaRL is built to tackle.
 
